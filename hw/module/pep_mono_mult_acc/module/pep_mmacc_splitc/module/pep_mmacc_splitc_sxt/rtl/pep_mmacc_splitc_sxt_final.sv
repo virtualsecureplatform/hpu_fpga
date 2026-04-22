@@ -242,6 +242,33 @@ module pep_mmacc_splitc_sxt_final
   );
 
 // ============================================================================================= --
+// Reorder : transpose + bit-reversal on iteration index (step 2 of mm_reorder.py)
+// ============================================================================================= --
+  logic [PSI-1:0][R-1:0][MOD_Q_W-1:0] x3r_data;
+  logic                               x3r_is_body;
+  logic                               x3r_vld;
+  logic                               x3r_rdy;
+
+  // INPUT_PIPE = 1'b0 : we don't need one as there is a fifo element just before
+  pep_mmacc_splitc_sxt_reorder
+  #(
+    .INPUT_PIPE (1'b0)
+  ) pep_mmacc_splitc_sxt_reorder (
+    .clk        (clk),
+    .s_rst_n    (s_rst_n),
+
+    .in_data    (x3_perm_data),
+    .in_is_body (x3_is_body),
+    .in_vld     (x3_vld),
+    .in_rdy     (x3_rdy),
+
+    .out_data   (x3r_data),
+    .out_is_body(x3r_is_body),
+    .out_vld    (x3r_vld),
+    .out_rdy    (x3r_rdy)
+  );
+
+// ============================================================================================= --
 // X3 : Format for the output
 // ============================================================================================= --
   logic [REGF_COEF_NB-1:0][MOD_Q_W-1:0] x4_data;
@@ -264,20 +291,20 @@ module pep_mmacc_splitc_sxt_final
       logic                                                    sr_is_body;
       logic                                                    sr_is_bodyD;
 
-      logic                                                    x3_avail;
+      logic                                                    x3r_avail;
 
-      assign x3_avail = x3_vld & x3_rdy;
+      assign x3r_avail = x3r_vld & x3r_rdy;
 
       // Count the chunks
       assign sr_last_out_cnt = (sr_out_cnt == GRAM_CHUNK_NB-1) | sr_is_body;
       assign sr_out_cntD     = (x4_vld && x4_rdy) ? sr_last_out_cnt ? '0 : sr_out_cnt + 1 : sr_out_cnt;
-      assign sr_availD       = x3_vld ? 1'b1 :
+      assign sr_availD       = x3r_vld ? 1'b1 :
                                x4_vld && x4_rdy && sr_last_out_cnt ? 1'b0 : sr_avail;
-      assign sr_is_bodyD     = x3_avail ? x3_is_body : sr_is_body;
+      assign sr_is_bodyD     = x3r_avail ? x3r_is_body : sr_is_body;
 
       // Data shifter
       assign sr_data_tmp = sr_data >> (MOD_Q_W*REGF_COEF_NB); // Use this to avoid compilation warning due to parameter for the other branch.
-      assign sr_dataD    = x3_avail ? x3_perm_data :
+      assign sr_dataD    = x3r_avail ? x3r_data :
                            x4_vld && x4_rdy ? sr_data_tmp : sr_data;
 
       always_ff @(posedge clk)
@@ -297,7 +324,7 @@ module pep_mmacc_splitc_sxt_final
 
       assign x4_data    = sr_data[0];
       assign x4_vld     = sr_avail;
-      assign x3_rdy     = (sr_last_out_cnt & x4_rdy) | ~sr_avail;
+      assign x3r_rdy    = (sr_last_out_cnt & x4_rdy) | ~sr_avail;
 
  // pragma translate_off
       always_ff @(posedge clk)
@@ -305,7 +332,7 @@ module pep_mmacc_splitc_sxt_final
           // do nothing
         end
         else begin
-          assert(!x3_avail | !sr_avail | sr_last_out_cnt)
+          assert(!x3r_avail | !sr_avail | sr_last_out_cnt)
           else begin
             $fatal(1,"%t > ERROR: sr_data overflow!", $time);
           end
@@ -318,12 +345,12 @@ module pep_mmacc_splitc_sxt_final
       logic [CHUNK_GRAM_NB_W-1:0] acc_in_cntD;
       logic                       acc_last_in_cnt;
 
-      logic                       x3_avail;
+      logic                       x3r_avail;
 
-      assign x3_avail = x3_vld & x3_rdy;
+      assign x3r_avail = x3r_vld & x3r_rdy;
 
-      assign acc_last_in_cnt = (acc_in_cnt == (CHUNK_GRAM_NB-1)) | x3_is_body;
-      assign acc_in_cntD     = x3_avail ? acc_last_in_cnt ? '0 : acc_in_cnt + 1 : acc_in_cnt;
+      assign acc_last_in_cnt = (acc_in_cnt == (CHUNK_GRAM_NB-1)) | x3r_is_body;
+      assign acc_in_cntD     = x3r_avail ? acc_last_in_cnt ? '0 : acc_in_cnt + 1 : acc_in_cnt;
 
       always_ff @(posedge clk)
         if (!s_rst_n) acc_in_cnt <= '0;
@@ -334,28 +361,28 @@ module pep_mmacc_splitc_sxt_final
       logic [REGF_COEF_NB-1:0][MOD_Q_W-1:0]                  x4_data_tmp;
 
       if (CHUNK_GRAM_NB > 2) begin
-        assign acc_dataD = x3_avail ? {x3_perm_data, acc_data[CHUNK_GRAM_NB-1:2]} : acc_data;
+        assign acc_dataD = x3r_avail ? {x3r_data, acc_data[CHUNK_GRAM_NB-1:2]} : acc_data;
       end
       else begin
-        assign acc_dataD = x3_avail ? x3_perm_data : acc_data;
+        assign acc_dataD = x3r_avail ? x3r_data : acc_data;
       end
 
-      assign x4_data_tmp = {x3_perm_data, acc_data};
-      assign x4_data[0]  = x3_is_body ? x3_perm_data[0] : x4_data_tmp[0];
+      assign x4_data_tmp = {x3r_data, acc_data};
+      assign x4_data[0]  = x3r_is_body ? x3r_data[0] : x4_data_tmp[0];
       assign x4_data[REGF_COEF_NB-1:1] = x4_data_tmp[REGF_COEF_NB-1:1];
-      assign x4_vld      = acc_last_in_cnt & x3_vld;
+      assign x4_vld      = acc_last_in_cnt & x3r_vld;
 
       always_ff @(posedge clk)
         acc_data <= acc_dataD;
 
-      assign x3_rdy = ~acc_last_in_cnt | x4_rdy;
+      assign x3r_rdy = ~acc_last_in_cnt | x4_rdy;
 
     end
     else begin : gen_same_size
       // nothing to do
-      assign x4_data     = x3_perm_data;
-      assign x4_vld      = x3_vld;
-      assign x3_rdy      = x4_rdy;
+      assign x4_data     = x3r_data;
+      assign x4_vld      = x3r_vld;
+      assign x3r_rdy     = x4_rdy;
     end
   endgenerate
 

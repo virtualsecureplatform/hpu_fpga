@@ -74,10 +74,10 @@ for i in `seq 1 5`; do
     MIN_INFIFO_CT_NB=$(($GRAM_NB+2))
 
     # Split version only supports STG_ITER > 1
-    # Reorder module also requires R*PSI to be a multiple of STG_ITER_NB (i.e. STG_ITER <= R*PSI since both are powers of two)
+    # Reorder module supports both regimes (R*PSI >= STG_ITER and STG_ITER >= R*PSI)
     PSI=$((2+$RANDOM % 5))
     STG_ITER=$(($N/($R * 2**$PSI)))
-    while [ $PHYS_RAM_DEPTH -lt $(($MIN_INFIFO_CT_NB * $STG_ITER * ($GLWE_K+1))) ] || [ $STG_ITER -lt 2 ] || [ $(($STG_ITER * ($GLWE_K+1))) -lt $GARB_DIST ] || [ $STG_ITER -gt $(($R * 2**$PSI)) ]; do
+    while [ $PHYS_RAM_DEPTH -lt $(($MIN_INFIFO_CT_NB * $STG_ITER * ($GLWE_K+1))) ] || [ $STG_ITER -lt 2 ] || [ $(($STG_ITER * ($GLWE_K+1))) -lt $GARB_DIST ]; do
       PSI=$((2+$RANDOM % 5))
       STG_ITER=$(($N/($R * 2**$PSI)))
     done

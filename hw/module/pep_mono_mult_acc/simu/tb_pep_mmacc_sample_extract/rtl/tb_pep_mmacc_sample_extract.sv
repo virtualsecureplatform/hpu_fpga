@@ -623,7 +623,7 @@ module tb_pep_mmacc_sample_extract;
       b_coef_q.push_back(boram_sxt_data);
 
 
-  always_ff @(posedge clk)
+  always_ff @(posedge clk) // reorder here
     if (b_coef_q.size() > 0 && sxt_icmd_lut_q.size() > 0) begin
       logic [GLWE_K_P1-1:0][N-1:0][OP_W-1:0] d;
       logic [GLWE_K_P1-1:0][N-1:0][OP_W-1:0] v;
@@ -687,19 +687,20 @@ module tb_pep_mmacc_sample_extract;
 //          $display("SXT > w[%0d][%0d] = 0x%0x", g,n,w[g][n]);
 
       // reverse
-      for (int g=0; g<GLWE_K_P1; g=g+1) begin
-        for (int n=0; n<N; n=n+1) begin
-          int rev_n;
-          rev_n = rev_order(n);
-          x[g][n] = w[g][rev_n];
-        end
-      end
+      //for (int g=0; g<GLWE_K_P1; g=g+1) begin
+      //  for (int n=0; n<N; n=n+1) begin
+      //    int rev_n;
+      //    rev_n = rev_order(n);
+      //    x[g][n] = w[g][rev_n];
+      //  end
+      //end
+      //      $display("REV >" );
+      //      for (int g=0; g<GLWE_K_P1; g=g+1)
+      //        for (int n=0; n<N; n=n+1)
+      //          $display("REV > x[%0d][%0d] = 0x%0x", g,n,x[g][n]);
 
-//      $display("REV >" );
-//      for (int g=0; g<GLWE_K_P1; g=g+1)
-//        for (int n=0; n<N; n=n+1)
-//          $display("REV > x[%0d][%0d] = 0x%0x", g,n,x[g][n]);
-
+      // natural order: reorder module in DUT already undoes the bit-reversal
+      x = w;
 
       // chunk
 //      $display("CHK >" );

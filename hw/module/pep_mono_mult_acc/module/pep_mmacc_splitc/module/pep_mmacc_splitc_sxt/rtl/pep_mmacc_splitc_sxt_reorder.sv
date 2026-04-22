@@ -43,11 +43,16 @@ module pep_mmacc_splitc_sxt_reorder
 // ============================================================================================== --
 // localparam
 // ============================================================================================== --
-  localparam int ROWS_PER_BEAT = RD_COEF_NB / STG_ITER_NB;
+  // Flat coef index p = cnt*RD_COEF_NB + m spans STG_ITER_SZ + RD_COEF_W bits.
+  localparam int FLAT_W = STG_ITER_SZ + RD_COEF_W;
+  // localparam int ROWS_PER_BEAT = RD_COEF_NB / STG_ITER_NB;
 
 // ============================================================================================== --
 // Parameter checks
 // ============================================================================================== --
+// With both STG_ITER_NB and RD_COEF_NB powers of two, one always divides the other, so no
+// explicit divisibility check is needed. The unified Step-2 formula handles both regimes
+// (RD_COEF_NB >= STG_ITER_NB and STG_ITER_NB >= RD_COEF_NB).
   generate
     if (STG_ITER_NB < 2) begin : __UNSUPPORTED_STG_ITER_NB_
       $fatal(1,"> ERROR: STG_ITER_NB (%0d) must be >= 2 (bit-reversal on stage-iter index is degenerate below 2).", STG_ITER_NB);
@@ -60,9 +65,6 @@ module pep_mmacc_splitc_sxt_reorder
     end
     if ((RD_COEF_NB & (RD_COEF_NB - 1)) != 0) begin : __RD_COEF_NB_NOT_POW2_
       $fatal(1,"> ERROR: RD_COEF_NB (%0d) must be a power of two.", RD_COEF_NB);
-    end
-    if ((RD_COEF_NB % STG_ITER_NB) != 0) begin : __RD_COEF_NB_NOT_MULTIPLE_OF_STG_ITER_NB_
-      $fatal(1,"> ERROR: RD_COEF_NB (%0d) must be a multiple of STG_ITER_NB (%0d).", RD_COEF_NB, STG_ITER_NB);
     end
   endgenerate
 
@@ -158,20 +160,37 @@ module pep_mmacc_splitc_sxt_reorder
 // ============================================================================================== --
 // Step 2: read with transpose + bit-reversed column index
 // ============================================================================================== --
-  // Output beat k (cnt=k during read phase) contains natural indices [k*RD_COEF_NB .. (k+1)*RD_COEF_NB-1].
-  // Position m = s * STG_ITER_NB + t within beat:
-  //   row = k * ROWS_PER_BEAT + s    (s = 0..ROWS_PER_BEAT-1)
-  //   col = rev(t, STG_ITER_SZ)      (t = 0..STG_ITER_NB-1)
+  // Output beat k emits natural coef indices p in [k*RD_COEF_NB .. (k+1)*RD_COEF_NB-1].
+  // Since both sizes are powers of two, p = {cnt, m} (FLAT_W bits) splits cleanly:
+  //   i = p[FLAT_W-1 : STG_ITER_SZ]   // high bits -> row in step1_l (i in R*PSI)
+  //   j = p[STG_ITER_SZ-1 : 0]        // low  bits -> column (j in STG_ITER_NB)
+  //   rd_data[m] = step1_l[rev(j, STG_ITER_SZ)][i]
+  // Pure wiring; valid for both RD_COEF_NB >= STG_ITER_NB and STG_ITER_NB >= RD_COEF_NB.
+
   logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] rd_data;
 
+  // always_comb
+  //   for (int s = 0; s < ROWS_PER_BEAT; s++)                                      // for i in range(R*PSI)
+  //     for (int t = 0; t < STG_ITER_NB; t++) begin                                // for j in range(STG_ITER_NB):
+  //       logic [STG_ITER_SZ-1:0] rev_t;
+  //       for (int b = 0; b < STG_ITER_SZ; b++)
+  //         rev_t[b] = t[STG_ITER_SZ-1-b];                                         // reverse(j, STG_ITER_SZ)
+  //       rd_data[s * STG_ITER_NB + t] = buf_data[rev_t][cnt * ROWS_PER_BEAT + s]; // step1_l[reverse(j,STG_ITER_SZ)][i]
+  //     end
+
   always_comb
-    for (int s = 0; s < ROWS_PER_BEAT; s++)                                      // for i in range(R*PSI)
-      for (int t = 0; t < STG_ITER_NB; t++) begin                                // for j in range(STG_ITER_NB):
-        logic [STG_ITER_SZ-1:0] rev_t;
-        for (int b = 0; b < STG_ITER_SZ; b++)
-          rev_t[b] = t[STG_ITER_SZ-1-b];                                         // reverse(j, STG_ITER_SZ)
-        rd_data[s * STG_ITER_NB + t] = buf_data[rev_t][cnt * ROWS_PER_BEAT + s]; // step1_l[reverse(j,STG_ITER_SZ)][i]
-      end
+    for (int m = 0; m < RD_COEF_NB; m++) begin     // coef within output beat
+      logic [FLAT_W-1:0]      flat_p;
+      logic [RD_COEF_W-1:0]   i_outer;
+      logic [STG_ITER_SZ-1:0] j_outer;
+      logic [STG_ITER_SZ-1:0] rev_j;
+      flat_p  = {cnt, RD_COEF_W'(m)};            // p = k*R*PSI + m
+      i_outer = flat_p[FLAT_W-1 : STG_ITER_SZ];  // p / STG_ITER_NB     (i in range(R*PSI))
+      j_outer = flat_p[STG_ITER_SZ-1 : 0];       // p % STG_ITER_NB     (j in range(STG_ITER_NB))
+      for (int b = 0; b < STG_ITER_SZ; b++)
+        rev_j[b] = j_outer[STG_ITER_SZ-1-b];     // reverse(j, STG_ITER_SZ)
+      rd_data[m] = buf_data[rev_j][i_outer];     // step1_l[reverse(j,STG_ITER_SZ)][i]
+    end
 
 // ============================================================================================== --
 // Pre-pipe interface

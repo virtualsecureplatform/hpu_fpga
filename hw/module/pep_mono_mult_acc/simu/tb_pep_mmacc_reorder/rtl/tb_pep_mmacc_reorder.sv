@@ -26,10 +26,13 @@
 //  * Output consumer back-pressures out_rdy randomly.
 //  * Output checker pops from `expected_q` and compares.
 //
-// The check is parameter-agnostic: it reproduces the DUT's documented mapping
-//    out_beat[k][s*STG_ITER_NB + t] =
-//        in_beat[rev(t, STG_ITER_SZ)][rev(k*ROWS_PER_BEAT + s, RPSI_SZ)]
-// with ROWS_PER_BEAT = R*PSI/STG_ITER_NB and RPSI_SZ = $clog2(R*PSI).
+// The check is parameter-agnostic: it reproduces the DUT's unified flat-index mapping.
+// For output beat k and coef position m within the beat, let p = k*RD_COEF_NB + m:
+//    i_outer = p / STG_ITER_NB      (row index, 0..RD_COEF_NB-1 across a mask group)
+//    j_outer = p % STG_ITER_NB      (column = stg_iter index, 0..STG_ITER_NB-1)
+//    out_beat[k][m] = accum[rev(j_outer, STG_ITER_SZ)]
+//                          [rev(i_outer, RD_COEF_W)]    // accum holds raw input (pre-Step1)
+// Works for both regimes: RD_COEF_NB >= STG_ITER_NB and STG_ITER_NB >= RD_COEF_NB.
 //
 // ==============================================================================================
 
@@ -49,8 +52,6 @@ module tb_pep_mmacc_reorder;
   localparam int CLK_HALF_PERIOD = 1;
   localparam int ARST_ACTIVATION = 17;
 
-  localparam int ROWS_PER_BEAT = RD_COEF_NB / STG_ITER_NB;
-
   parameter int MASK_GROUP_NB = 500;
   parameter int BODY_NB       = 100;
 
@@ -62,7 +63,6 @@ module tb_pep_mmacc_reorder;
     $display("> INFO: STG_ITER_SZ   = %0d", STG_ITER_SZ);
     $display("> INFO: RD_COEF_NB    = %0d", RD_COEF_NB);
     $display("> INFO: RD_COEF_W     = %0d", RD_COEF_W);
-    $display("> INFO: ROWS_PER_BEAT = %0d", ROWS_PER_BEAT);
   end
 
 // ============================================================================================== --
@@ -212,22 +212,27 @@ module tb_pep_mmacc_reorder;
 
         if (accum_cnt == STG_ITER_NB) begin
           // Mask group complete: push STG_ITER_NB expected output beats.
+          // Uses the same unified mapping as the DUT:
+          //   p       = k*RD_COEF_NB + m
+          //   i_outer = p / STG_ITER_NB   (-> rev in R*PSI on accum access, since accum stores raw input)
+          //   j_outer = p % STG_ITER_NB   (-> rev over STG_ITER_SZ on accum column index)
           for (int k=0; k<STG_ITER_NB; k++) begin
             beat_t e;
             e.is_body = 1'b0;
             e.data    = '0;
-            for (int s=0; s<ROWS_PER_BEAT; s++)
-              for (int t=0; t<STG_ITER_NB; t++) begin
-                int m;
-                int j;
-                int rj;
-                int rt;
-                m  = s*STG_ITER_NB + t;
-                rt = rev_col(t);
-                j  = k*ROWS_PER_BEAT + s;
-                rj = rev_row(j);
-                e.data[m/R][m%R] = accum[rt][rj/R][rj%R];
-              end
+            for (int m=0; m<RD_COEF_NB; m++) begin
+              int flat_p;
+              int i_outer;
+              int j_outer;
+              int rev_i;
+              int rev_j;
+              flat_p  = k*RD_COEF_NB + m;
+              i_outer = flat_p / STG_ITER_NB;
+              j_outer = flat_p % STG_ITER_NB;
+              rev_i   = rev_row(i_outer);
+              rev_j   = rev_col(j_outer);
+              e.data[m/R][m%R] = accum[rev_j][rev_i/R][rev_i%R];
+            end
             expected_q.push_back(e);
           end
           mask_sent++;
