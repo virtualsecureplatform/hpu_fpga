@@ -50,14 +50,6 @@ set_property PARENT user_pblock_SLR2 [get_pblocks user_pblock_SLR2_right]
 add_cells_to_pblock user_pblock_SLR0 [get_cells -hierarchical -regexp .*pep_mmacc_splitc_main_sxt] -clear_locs
 add_cells_to_pblock user_pblock_SLR1 [get_cells -hierarchical -regexp .*pep_mmacc_splitc_subs_sxt] -clear_locs
 
-# =================================================================================================
-# Memory inference hints
-# -------------------------------------------------------------------------------------------------
-# Hint Vivado to pack the reorder buffer (buf_data) into LUTRAM instead of plain flops.
-# If the read pattern can't be folded into LUTRAM the attribute is silently dropped.
-# =================================================================================================
-set_property RAM_STYLE distributed [get_cells -hierarchical -regexp ".*pep_mmacc_splitc_sxt_reorder/buf_data_reg.*" -quiet]
-
 #add_cells_to_pblock user_pblock_SLR0_left [get_cells -hierarchical -regexp .*pep_mmacc_splitc_main_sxt/pep_mmacc_splitc_sxt_core/qpsi0_.*] -clear_locs
 #add_cells_to_pblock user_pblock_SLR0_right [get_cells -hierarchical -regexp .*pep_mmacc_splitc_main_sxt/pep_mmacc_splitc_sxt_core/qpsi1_.*] -clear_locs
 #add_cells_to_pblock user_pblock_SLR1_left [get_cells -hierarchical -regexp .*pep_mmacc_splitc_subs_sxt/pep_mmacc_splitc_sxt_core/qpsi0_.*] -clear_locs
