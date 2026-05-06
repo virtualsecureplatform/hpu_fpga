@@ -155,15 +155,15 @@ module pep_mmacc_splitc_sxt_reorder
 
   always_ff @(posedge clk)
     if (wr_en)
-      buf_data[cnt] <= step1_data;            // step1_l.append(...)  (cnt == i in range(STG_ITER_NB))
+      buf_data[cnt] <= step1_data; // step1_l.append(...)  (cnt == i in range(STG_ITER_NB))
 
 // ============================================================================================== --
 // Step 2: read with transpose + bit-reversed column index
 // ============================================================================================== --
   // Output beat k emits natural coef indices p in [k*RD_COEF_NB .. (k+1)*RD_COEF_NB-1].
   // Since both sizes are powers of two, p = {cnt, m} (FLAT_W bits) splits cleanly:
-  //   i = p[FLAT_W-1 : STG_ITER_SZ]   // high bits -> row in step1_l (i in R*PSI)
-  //   j = p[STG_ITER_SZ-1 : 0]        // low  bits -> column (j in STG_ITER_NB)
+  //   i = p[FLAT_W-1 : STG_ITER_SZ] | high bits -> row in step1_l (i in R*PSI)
+  //   j = p[STG_ITER_SZ-1 : 0]      | low  bits -> column (j in STG_ITER_NB)
   //   rd_data[m] = step1_l[rev(j, STG_ITER_SZ)][i]
   // Pure wiring; valid for both RD_COEF_NB >= STG_ITER_NB and STG_ITER_NB >= RD_COEF_NB.
 
@@ -178,6 +178,8 @@ module pep_mmacc_splitc_sxt_reorder
   //       rd_data[s * STG_ITER_NB + t] = buf_data[rev_t][cnt * ROWS_PER_BEAT + s]; // step1_l[reverse(j,STG_ITER_SZ)][i]
   //     end
 
+  // Flat-index form of the (s,t) loop: {cnt,m} splits into row i (upper bits) and
+  // stage-iter j (lower STG_ITER_SZ bits, then bit-reversed).
   always_comb
     for (int m = 0; m < RD_COEF_NB; m++) begin     // coef within output beat
       logic [FLAT_W-1:0]      flat_p;
@@ -216,9 +218,38 @@ module pep_mmacc_splitc_sxt_reorder
   end
 
 // ============================================================================================== --
+// Read-data pipe stage
+// ============================================================================================== --
+// Pipeline register that captures rd_data right at the mux output, so the long buf_data -> step-2 mux
+// to output register path no longer crosses a fifo stage.
+// Note that this fifo element is not merged with output pipe for clarity. This is mandatory.
+logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] mid_data;
+  logic                               mid_is_body;
+  logic                               mid_vld;
+  logic                               mid_rdy;
+
+  fifo_element #(
+    .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
+    .DEPTH          (1),
+    .TYPE_ARRAY     (4'h1),
+    .DO_RESET_DATA  (1'b0),
+    .RESET_DATA_VAL (0)
+  ) rd_pipe (
+    .clk      (clk),
+    .s_rst_n  (s_rst_n),
+
+    .in_data  ({pipe_is_body, pipe_data}),
+    .in_vld   (pipe_vld),
+    .in_rdy   (pipe_rdy),
+
+    .out_data ({mid_is_body, mid_data}),
+    .out_vld  (mid_vld),
+    .out_rdy  (mid_rdy)
+  );
+
+// ============================================================================================== --
 // Output pipe
 // ============================================================================================== --
-// try syntehsis with DEPTH=1 when more time
   fifo_element #(
     .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
     .DEPTH          (2),
@@ -229,9 +260,9 @@ module pep_mmacc_splitc_sxt_reorder
     .clk      (clk),
     .s_rst_n  (s_rst_n),
 
-    .in_data  ({pipe_is_body, pipe_data}),
-    .in_vld   (pipe_vld),
-    .in_rdy   (pipe_rdy),
+    .in_data  ({mid_is_body, mid_data}),
+    .in_vld   (mid_vld),
+    .in_rdy   (mid_rdy),
 
     .out_data ({out_is_body, out_data}),
     .out_vld  (out_vld),
