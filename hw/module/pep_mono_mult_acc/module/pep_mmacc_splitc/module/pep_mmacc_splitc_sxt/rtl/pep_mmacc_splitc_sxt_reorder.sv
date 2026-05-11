@@ -124,24 +124,62 @@ module pep_mmacc_splitc_sxt_reorder
     end
 
 // ============================================================================================== --
+// Step 1 pipeline
+// ============================================================================================== --
+// Register step1_data close to the buf_data row banks. Without this stage the bit-reversed
+// data (RD_COEF_NB*MOD_Q_W bits) broadcasts combinationally to STG_ITER_NB row sinks; the
+// resulting routing star limits placement freedom for buf_data. Skid-buffered (DEPTH=2,
+// TYPE_ARRAY={4'h1,4'h2}) so the handshake remains lossless.
+  logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] s1_data;
+  logic                               s1_is_body;
+  logic                               s1_vld;
+  logic                               s1_rdy;
+
+  fifo_element #(
+    .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
+    .DEPTH          (2),
+    .TYPE_ARRAY     ({4'h1, 4'h2}),
+    .DO_RESET_DATA  (1'b0),
+    .RESET_DATA_VAL (0)
+  ) step1_pipe (
+    .clk      (clk),
+    .s_rst_n  (s_rst_n),
+
+    .in_data  ({s0_is_body, step1_data}),
+    .in_vld   (s0_vld),
+    .in_rdy   (s0_rdy),
+
+    .out_data ({s1_is_body, s1_data}),
+    .out_vld  (s1_vld),
+    .out_rdy  (s1_rdy)
+  );
+
+// ============================================================================================== --
 // Buffer + control
 // ============================================================================================== --
   logic [STG_ITER_NB-1:0][RD_COEF_NB-1:0][MOD_Q_W-1:0] buf_data;
-
-  logic [STG_ITER_W-1:0] cnt;       // shared counter for write and read phases
-  logic                  buf_avail; // 0 = write phase, 1 = read phase
-  logic                  cnt_last;
-  logic                  wr_en;
-  logic                  rd_en;
-  logic                  pipe_rdy; // Pre-pipe ready: controls buffer drain rate
+  logic [STG_ITER_W-1:0]  cnt;       // shared counter for write and read phases
+  logic                   buf_avail; // 0 = write phase, 1 = read phase
+  logic                   cnt_last;
+  logic                   wr_en;
+  logic                   rd_en;
+  logic                   pipe_rdy;  // Pre-pipe ready: controls buffer drain rate
 
   assign cnt_last = (cnt == STG_ITER_W'(STG_ITER_NB - 1));
 
   // Bodies bypass the buffer: while filling a mask group (~buf_avail), a body beat may arrive at
-  // any cnt in [0..STG_ITER_NB-1]. It is forwarded via body_pass without advancing cnt or
-  // disturbing buf_data, so the partially filled mask group resumes on the next mask beat.
-  assign wr_en  = ~buf_avail & s0_vld & ~s0_is_body;
+  // any cnt in [0..STG_ITER_NB-1].
+  // It is forwarded via body_pass without advancing cnt or disturbing buf_data, partially filled
+  // mask group resumes on the next mask beat.
+  assign wr_en  = ~buf_avail & s1_vld & ~s1_is_body;
   assign rd_en  =  buf_avail & pipe_rdy;
+
+  // Decompose the global wr_en into STG_ITER_NB per-row local enables
+  logic [STG_ITER_NB-1:0] wr_en_row;
+
+  always_comb
+    for (int r = 0; r < STG_ITER_NB; r++)
+      wr_en_row[r] = wr_en & (cnt == STG_ITER_W'(r));
 
   always_ff @(posedge clk) begin
     if (~s_rst_n) begin
@@ -154,8 +192,9 @@ module pep_mmacc_splitc_sxt_reorder
   end
 
   always_ff @(posedge clk)
-    if (wr_en)
-      buf_data[cnt] <= step1_data; // step1_l.append(...)  (cnt == i in range(STG_ITER_NB))
+    for (int r = 0; r < STG_ITER_NB; r++)
+      if (wr_en_row[r])
+        buf_data[r] <= s1_data; // step1_l.append(...)  (r == cnt == i in range(STG_ITER_NB))
 
 // ============================================================================================== --
 // Step 2: read with transpose + bit-reversed column index
@@ -202,19 +241,21 @@ module pep_mmacc_splitc_sxt_reorder
   logic                               pipe_vld;
   logic                               body_pass;
 
-  assign body_pass    = ~buf_avail & s0_vld & s0_is_body;
+  assign body_pass    = ~buf_avail & s1_vld & s1_is_body;
 
-  assign s0_rdy       = buf_avail ? 1'b0 : body_pass ? pipe_rdy : 1'b1;
+  assign s1_rdy       = buf_avail ? 1'b0 : body_pass ? pipe_rdy : 1'b1;
 
   assign pipe_vld     = buf_avail | body_pass;
   assign pipe_is_body = body_pass;
 
+  // Body scalar lives at flat index 0 (s1_data[0] == bit-reversed step1_data[0] == s0_data[0][0]
+  // before pipelining: rev(0)=0, so step1_data[0] equals the first PSI/R lane).
   always_comb begin
     pipe_data = '0;
     if (buf_avail)
       pipe_data = rd_data;
     else if (body_pass)
-      pipe_data[0] = s0_data[0][0];
+      pipe_data[0] = s1_data[0];
   end
 
 // ============================================================================================== --
