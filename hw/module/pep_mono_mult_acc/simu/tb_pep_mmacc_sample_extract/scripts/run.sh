@@ -267,4 +267,3 @@ echo $cli > ${work_dir}/cli.log
 # Run phase : simulation
 #################################################
 $run_edalize -m ${module} -t ${PROJECT_SIMU_TOOL} -k keep $eda_args $args
-

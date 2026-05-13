@@ -75,9 +75,11 @@ for i in `seq 1 5`; do
 
     # Split version only supports STG_ITER > 1
     # Reorder module supports both regimes (R*PSI >= STG_ITER and STG_ITER >= R*PSI)
+    # pep_mmacc_splitc_sxt_reorder requires STG_ITER_NB >= 4 (two-stage indexed mux split needs
+    # STG_ITER_SZ >= 2). STG_ITER=2 elaborates a $fatal.
     PSI=$((2+$RANDOM % 5))
     STG_ITER=$(($N/($R * 2**$PSI)))
-    while [ $PHYS_RAM_DEPTH -lt $(($MIN_INFIFO_CT_NB * $STG_ITER * ($GLWE_K+1))) ] || [ $STG_ITER -lt 2 ] || [ $(($STG_ITER * ($GLWE_K+1))) -lt $GARB_DIST ]; do
+    while [ $PHYS_RAM_DEPTH -lt $(($MIN_INFIFO_CT_NB * $STG_ITER * ($GLWE_K+1))) ] || [ $STG_ITER -lt 4 ] || [ $(($STG_ITER * ($GLWE_K+1))) -lt $GARB_DIST ]; do
       PSI=$((2+$RANDOM % 5))
       STG_ITER=$(($N/($R * 2**$PSI)))
     done

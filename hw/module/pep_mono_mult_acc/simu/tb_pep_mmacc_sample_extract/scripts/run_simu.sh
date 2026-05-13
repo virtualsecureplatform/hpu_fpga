@@ -71,9 +71,13 @@ for i in `seq 1 5`; do
     N=$((2**$S))
 
 
+    # pep_mmacc_splitc_sxt_reorder requires STG_ITER_NB >= 4 (two-stage indexed mux split needs
+    # STG_ITER_SZ >= 2). STG_ITER < 4 elaborates a $fatal.
     PSI=$(($PSI_MIN+$RANDOM % 8))
-    while [ $(( $R * 2**$PSI)) -ge $N ] ; do
+    STG_ITER=$(($N/($R * 2**$PSI)))
+    while [ $STG_ITER -lt 4 ] ; do
       PSI=$(($PSI_MIN+$RANDOM % 5))
+      STG_ITER=$(($N/($R * 2**$PSI)))
     done
     PSI=$(( 2**$PSI ))
 

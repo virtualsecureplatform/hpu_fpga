@@ -12,3 +12,7 @@
 # Use Ultra RAM
 set_property ram_style ultra [get_cells -hier -regexp -filter {NAME =~ .*/pep_mmacc_infifo/gen_psi_loop\[.*\].gen_r_loop\[.*\].gen_fifo.fifo_data/ram/ram_1R1W/ram_1R1W_core/a_reg.*}]
 set_property cascade_height 8 [get_cells -hier -regexp -filter {NAME =~ .*/pep_mmacc_infifo/gen_psi_loop\[.*\].gen_r_loop\[.*\].gen_fifo.fifo_data/ram/ram_1R1W/ram_1R1W_core/a_reg.*}]
+
+set_property max_fanout 64 [get_nets -hier -regexp -filter { NAME =~ .*/pep_mmacc_infifo/data_sample.* }]
+set_property EXTRACT_ENABLE no [get_cells -hier -regexp -filter {NAME =~ .*/pep_mmacc_infifo/gen_psi_loop\[.*\].gen_r_loop\[.*\].gen_fifo.fifo_data/buf_data_reg.*}]
+set_property EXTRACT_ENABLE no [get_cells -hier -regexp -filter {NAME =~ .*/pep_mmacc_splitc_sxt_reorder/buf_data_reg.*}]

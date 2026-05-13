@@ -28,10 +28,10 @@
 //
 // The check is parameter-agnostic: it reproduces the DUT's unified flat-index mapping.
 // For output beat k and coef position m within the beat, let p = k*RD_COEF_NB + m:
-//    i_outer = p / STG_ITER_NB      (row index, 0..RD_COEF_NB-1 across a mask group)
-//    j_outer = p % STG_ITER_NB      (column = stg_iter index, 0..STG_ITER_NB-1)
-//    out_beat[k][m] = accum[rev(j_outer, STG_ITER_SZ)]
-//                          [rev(i_outer, RD_COEF_W)]    // accum holds raw input (pre-Step1)
+//    buf_col = p / STG_ITER_NB      (col index, 0..RD_COEF_NB-1 across a mask group)
+//    j_outer = p % STG_ITER_NB      (pre-reverse row slice, 0..STG_ITER_NB-1)
+//    out_beat[k][m] = accum[rev(j_outer, STG_ITER_SZ)]  // = buf_row
+//                          [rev(buf_col, RD_COEF_W)]    // accum holds raw input (pre-Step1)
 // Works for both regimes: RD_COEF_NB >= STG_ITER_NB and STG_ITER_NB >= RD_COEF_NB.
 //
 // ==============================================================================================
@@ -214,24 +214,24 @@ module tb_pep_mmacc_reorder;
           // Mask group complete: push STG_ITER_NB expected output beats.
           // Uses the same unified mapping as the DUT:
           //   p       = k*RD_COEF_NB + m
-          //   i_outer = p / STG_ITER_NB   (-> rev in R*PSI on accum access, since accum stores raw input)
-          //   j_outer = p % STG_ITER_NB   (-> rev over STG_ITER_SZ on accum column index)
+          //   buf_col = p / STG_ITER_NB   (-> rev in R*PSI on accum access, since accum stores raw input)
+          //   j_outer = p % STG_ITER_NB   (-> bit-reversed over STG_ITER_SZ to give buf_row)
           for (int k=0; k<STG_ITER_NB; k++) begin
             beat_t e;
             e.is_body = 1'b0;
             e.data    = '0;
             for (int m=0; m<RD_COEF_NB; m++) begin
               int flat_p;
-              int i_outer;
+              int buf_col;
               int j_outer;
               int rev_i;
-              int rev_j;
+              int buf_row;
               flat_p  = k*RD_COEF_NB + m;
-              i_outer = flat_p / STG_ITER_NB;
+              buf_col = flat_p / STG_ITER_NB;
               j_outer = flat_p % STG_ITER_NB;
-              rev_i   = rev_row(i_outer);
-              rev_j   = rev_col(j_outer);
-              e.data[m/R][m%R] = accum[rev_j][rev_i/R][rev_i%R];
+              rev_i   = rev_row(buf_col);
+              buf_row = rev_col(j_outer);
+              e.data[m/R][m%R] = accum[buf_row][rev_i/R][rev_i%R];
             end
             expected_q.push_back(e);
           end
