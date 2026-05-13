@@ -252,7 +252,7 @@ module pep_mmacc_splitc_sxt_final
   // INPUT_PIPE = 1'b0 : we don't need one as there is a fifo element just before
   pep_mmacc_splitc_sxt_reorder
   #(
-    .INPUT_PIPE (1'b1)
+    .INPUT_PIPE (1'b0)
   ) pep_mmacc_splitc_sxt_reorder (
     .clk        (clk),
     .s_rst_n    (s_rst_n),
