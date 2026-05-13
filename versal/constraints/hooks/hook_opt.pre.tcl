@@ -11,6 +11,7 @@ create_generated_clock -name prc_clk [get_pins -of_objects [get_clocks clkout1_p
 
 #cfg clock and prc clocks are asynchronous
 set_clock_groups -name async_cfg_prc -asynchronous -group {cfg_clk} -group [get_clocks  -regexp {.*prc_.*clk.*}]
+set_clock_groups -name async_mhdma_cfg -asynchronous -group [get_clocks mhdma_cfg_clk] -group [get_clocks cfg_clk]
 
 # PBLOCK
 create_pblock pblock_pl
