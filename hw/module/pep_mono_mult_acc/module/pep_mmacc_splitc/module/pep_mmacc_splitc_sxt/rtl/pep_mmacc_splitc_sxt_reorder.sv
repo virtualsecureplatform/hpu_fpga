@@ -14,6 +14,8 @@
 // For understanding this module see python file sw/monomial_mult/mm_reorder.py.
 // ==============================================================================================
 
+// without keep_hierarchy vivado retimes some registers and loose the objective and deletes all
+(* keep_hierarchy = "yes" *)
 module pep_mmacc_splitc_sxt_reorder
   import param_tfhe_pkg::*;
   import top_common_param_pkg::*;
@@ -129,7 +131,7 @@ module pep_mmacc_splitc_sxt_reorder
   // Register step1_data close to the bank-mem write rotator.
   // Without this stage the bit-reversed data (RD_COEF_NB*MOD_Q_W bits) broadcasts combinationally
   // into the sinks. Resulting routing star limits placement freedom for buf_data.
-  logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] s1_data;
+  (* keep = "true" *) logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] s1_data;
   logic                               s1_is_body;
   logic                               s1_vld;
   logic                               s1_rdy;
@@ -221,12 +223,12 @@ module pep_mmacc_splitc_sxt_reorder
   // The outer dimension is unpacked so each bank is its own array slice;
   // The inner dimension is packed.
   // This shape is what the distributed-RAM extractor recognises per UG901 RAM HDL Coding Techniques
-  logic [N_BANK-1:0][CG_BITS-1:0] bank_out;
+  (* keep = "true" *) logic [N_BANK-1:0][CG_BITS-1:0] bank_out;
 
   genvar gb;
   generate
     for (gb = 0; gb < N_BANK; gb++) begin : gen_bank
-      (* RAM_STYLE = "distributed" *) logic [CG_BITS-1:0] mem [STG_ITER_NB];
+      (* RAM_STYLE = "distributed", DONT_TOUCH = "TRUE" *) logic [CG_BITS-1:0] mem [STG_ITER_NB];
 
       // Write: one bank, one address (cnt), one CG_BITS word per cycle.
       always_ff @(posedge clk)
@@ -315,7 +317,7 @@ module pep_mmacc_splitc_sxt_reorder
   end
 
   // Body bypass: body scalar lives at flat index 0 (rev(0)=0; step1_data[0] = s0_data[0][0]).
-  logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] pipe_data;
+  (* DONT_TOUCH = "TRUE" *) logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] pipe_data;
   always_comb begin
     pipe_data = 'h0;
     if (body_pass_q) begin
