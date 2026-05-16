@@ -67,7 +67,6 @@ module pep_mmacc_splitc_sxt_reorder
     end
   endgenerate
 
-
   // =========================================================================================== --
   // Optional input pipe
   // ============================================================================================== --
@@ -118,7 +117,7 @@ module pep_mmacc_splitc_sxt_reorder
   // direct translation from python step1 to RTL
   always_comb
     for (int i = 0; i < RD_COEF_NB; i++) begin // for x in range(R*PSI)
-      logic [RD_COEF_W-1:0] rev_i;
+      automatic logic [RD_COEF_W-1:0] rev_i = '0;
       for (int b = 0; b < RD_COEF_W; b++)
         rev_i[b] = i[RD_COEF_W-1-b];           // reverse(x,RPSI_SZ)
       step1_data[i] = in_data_flat[rev_i];
@@ -211,11 +210,9 @@ module pep_mmacc_splitc_sxt_reorder
   // no explicit modulo. Paramter check of this constraint is in the guardrails.
   // Synthesised as a log-stage barrel on N_BANK CG_BITS-wide lanes.
   logic [N_BANK-1:0][CG_BITS-1:0] wr_in;
-  logic [N_BANK_W-1:0]            wr_src;
   always_comb begin
-    wr_src = 'h0;
     for (int b = 0; b < N_BANK; b++) begin
-      wr_src   = N_BANK_W'(b) - cnt_hi;
+      automatic logic [N_BANK_W-1:0] wr_src = N_BANK_W'(b) - cnt_hi;
       wr_in[b] = s1_cg[wr_src];
     end
   end
@@ -305,12 +302,10 @@ module pep_mmacc_splitc_sxt_reorder
   //   m_lo in [0, N_BANK)  -> chooses a bank (after bit-reverse + de-skew)
   //   m_hi in [0, CG_W)    -> chooses which MOD_Q_W lane within that bank's entry
   logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] rd_data;
-  logic [N_BANK_W-1:0]                rev_m_lo;
-  logic [N_BANK_W-1:0]                band_idx;
   always_comb begin
-    rev_m_lo = 'h0;
-    band_idx     = 'h0;
     for (int m_lo = 0; m_lo < N_BANK; m_lo++) begin
+      automatic logic [N_BANK_W-1:0] rev_m_lo = '0;
+      automatic logic [N_BANK_W-1:0] band_idx;
       for (int b = 0; b < N_BANK_W; b++)
         rev_m_lo[b] = m_lo[N_BANK_W-1-b];
       band_idx = rev_m_lo + cnt_hi_q;
