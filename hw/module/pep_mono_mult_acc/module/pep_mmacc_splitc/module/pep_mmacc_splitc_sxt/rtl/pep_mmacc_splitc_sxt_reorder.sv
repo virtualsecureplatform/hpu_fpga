@@ -137,7 +137,7 @@ module pep_mmacc_splitc_sxt_reorder
   logic                               s1_rdy;
 
   fifo_element #(
-    .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
+    .WIDTH          (RD_COEF_NB * MOD_Q_W + 1), // +1 for is_body
     .DEPTH          (2),
     .TYPE_ARRAY     ({4'h1, 4'h2}),
     .DO_RESET_DATA  (1'b0),
@@ -331,30 +331,30 @@ module pep_mmacc_splitc_sxt_reorder
 // Stage 2 pipeline
 // TODO: try without and see if it holds
 // ============================================================================================== --
-  logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] mid_data;
-  logic                               mid_is_body;
-  logic                               mid_vld;
-  logic                               mid_rdy;
+  // logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] mid_data;
+  // logic                               mid_is_body;
+  // logic                               mid_vld;
+  // logic                               mid_rdy;
 
-  // configured as forward register to break data-path
-  fifo_element #(
-    .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
-    .DEPTH          (1),
-    .TYPE_ARRAY     (4'h1),
-    .DO_RESET_DATA  (1'b0),
-    .RESET_DATA_VAL (0)
-  ) step2_stage2_pipeline (
-    .clk      (clk),
-    .s_rst_n  (s_rst_n),
+  // // configured as forward register to break data-path
+  // fifo_element #(
+  //   .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
+  //   .DEPTH          (1),
+  //   .TYPE_ARRAY     (4'h1),
+  //   .DO_RESET_DATA  (1'b0),
+  //   .RESET_DATA_VAL (0)
+  // ) step2_stage2_pipeline (
+  //   .clk      (clk),
+  //   .s_rst_n  (s_rst_n),
 
-    .in_data  ({body_pass_q, pipe_data}),
-    .in_vld   (mid1_vld),
-    .in_rdy   (mid1_rdy),
+  //   .in_data  ({body_pass_q, pipe_data}),
+  //   .in_vld   (mid1_vld),
+  //   .in_rdy   (mid1_rdy),
 
-    .out_data ({mid_is_body, mid_data}),
-    .out_vld  (mid_vld),
-    .out_rdy  (mid_rdy)
-  );
+  //   .out_data ({mid_is_body, mid_data}),
+  //   .out_vld  (mid_vld),
+  //   .out_rdy  (mid_rdy)
+  // );
 
 // ============================================================================================== --
 // Output pipe
@@ -370,9 +370,9 @@ module pep_mmacc_splitc_sxt_reorder
     .clk      (clk),
     .s_rst_n  (s_rst_n),
 
-    .in_data  ({mid_is_body, mid_data}),
-    .in_vld   (mid_vld),
-    .in_rdy   (mid_rdy),
+    .in_data  ({body_pass_q, pipe_data}),
+    .in_vld   (mid1_vld),
+    .in_rdy   (mid1_rdy),
 
     .out_data ({out_is_body, out_data}),
     .out_vld  (out_vld),
