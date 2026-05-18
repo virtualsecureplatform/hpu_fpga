@@ -131,10 +131,11 @@ module pep_mmacc_splitc_sxt_reorder
   // Register step1_data close to the bank-mem write rotator.
   // Without this stage the bit-reversed data (RD_COEF_NB*MOD_Q_W bits) broadcasts combinationally
   // into the sinks. Resulting routing star limits placement freedom for buf_data.
+  // Keep is mandatory otherwise vivado removes the signal leading to catastophic failure
   (* keep = "true" *) logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] s1_data;
-  logic                               s1_is_body;
-  logic                               s1_vld;
-  logic                               s1_rdy;
+  logic                                                   s1_is_body;
+  logic                                                   s1_vld;
+  logic                                                   s1_rdy;
 
   fifo_element #(
     .WIDTH          (RD_COEF_NB * MOD_Q_W + 1), // +1 for is_body
@@ -228,7 +229,7 @@ module pep_mmacc_splitc_sxt_reorder
   genvar gb;
   generate
     for (gb = 0; gb < N_BANK; gb++) begin : gen_bank
-      (* RAM_STYLE = "distributed", DONT_TOUCH = "TRUE" *) logic [CG_BITS-1:0] mem [STG_ITER_NB];
+      (* RAM_STYLE = "distributed" *) logic [CG_BITS-1:0] mem [STG_ITER_NB];
 
       // Write: one bank, one address (cnt), one CG_BITS word per cycle.
       always_ff @(posedge clk)
@@ -326,35 +327,6 @@ module pep_mmacc_splitc_sxt_reorder
       pipe_data = rd_data;
     end
   end
-
-// ============================================================================================== --
-// Stage 2 pipeline
-// TODO: try without and see if it holds
-// ============================================================================================== --
-  // logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] mid_data;
-  // logic                               mid_is_body;
-  // logic                               mid_vld;
-  // logic                               mid_rdy;
-
-  // // configured as forward register to break data-path
-  // fifo_element #(
-  //   .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
-  //   .DEPTH          (1),
-  //   .TYPE_ARRAY     (4'h1),
-  //   .DO_RESET_DATA  (1'b0),
-  //   .RESET_DATA_VAL (0)
-  // ) step2_stage2_pipeline (
-  //   .clk      (clk),
-  //   .s_rst_n  (s_rst_n),
-
-  //   .in_data  ({body_pass_q, pipe_data}),
-  //   .in_vld   (mid1_vld),
-  //   .in_rdy   (mid1_rdy),
-
-  //   .out_data ({mid_is_body, mid_data}),
-  //   .out_vld  (mid_vld),
-  //   .out_rdy  (mid_rdy)
-  // );
 
 // ============================================================================================== --
 // Output pipe
