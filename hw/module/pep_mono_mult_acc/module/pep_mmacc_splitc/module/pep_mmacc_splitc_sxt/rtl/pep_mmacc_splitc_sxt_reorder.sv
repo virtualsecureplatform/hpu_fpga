@@ -331,11 +331,11 @@ module pep_mmacc_splitc_sxt_reorder
 // ============================================================================================== --
 // Output pipe
 // ============================================================================================== --
-// configured as backward register to break control-path
+// configured as forward/backward register to break control and data-path
   fifo_element #(
     .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
-    .DEPTH          (1),
-    .TYPE_ARRAY     (4'h2),
+    .DEPTH          (2),
+    .TYPE_ARRAY     ({4'h1,4'h2}),
     .DO_RESET_DATA  (1'b0),
     .RESET_DATA_VAL (0)
   ) out_pipe (
