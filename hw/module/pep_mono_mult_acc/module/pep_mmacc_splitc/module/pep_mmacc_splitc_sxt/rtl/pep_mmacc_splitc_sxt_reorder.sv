@@ -119,14 +119,13 @@ module pep_mmacc_splitc_sxt_reorder
 
   assign in_data_flat = s0_data;
 
-  // direct translation from python step1 to RTL
-  always_comb
-    for (int i = 0; i < RD_COEF_NB; i++) begin // for x in range(R*PSI)
-      automatic logic [RD_COEF_W-1:0] rev_i = '0;
-      for (int b = 0; b < RD_COEF_W; b++)
-        rev_i[b] = i[RD_COEF_W-1-b];           // reverse(x, RD_COEF_W)
-      step1_data[i] = in_data_flat[rev_i];
+  // direct translation from python step1 to RTL (pure wiring)
+  generate
+    for (genvar i = 0; i < RD_COEF_NB; i++) begin : gen_step1
+      localparam logic [RD_COEF_W-1:0] REV_I = { << {RD_COEF_W'(i)} }; // reverse(x, RD_COEF_W)
+      assign step1_data[i] = in_data_flat[REV_I];
     end
+  endgenerate
 
   // =========================================================================================== --
   // Step 1 pipeline
@@ -175,6 +174,7 @@ module pep_mmacc_splitc_sxt_reorder
 
   assign wr_en = ~buf_avail & s1_vld & ~s1_is_body;
   assign rd_en =  buf_avail & pipe_rdy;
+  assign cnt_last = (cnt == STG_ITER_W'(STG_ITER_NB - 1));
 
   always_ff @(posedge clk) begin
     if (~s_rst_n) begin
@@ -185,8 +185,6 @@ module pep_mmacc_splitc_sxt_reorder
       buf_avail <= cnt_last ? ~buf_avail : buf_avail;
     end
   end
-
-  assign cnt_last = (cnt == STG_ITER_W'(STG_ITER_NB - 1));
 
   // Slice the shared counter:
   //   cnt_hi     = cnt[STG_ITER_W-1:RG_W] - drives the write/read rotator, N_BANK_W bits (cnt_hi in [0, N_BANK)).
@@ -199,11 +197,10 @@ module pep_mmacc_splitc_sxt_reorder
 
   assign cnt_hi = cnt[STG_ITER_W-1:RG_W];
 
-  always_comb begin
-    rev_cnt_lo = '0;
-    for (int b = 0; b < RG_W; b++)
-      rev_cnt_lo[b] = cnt[RG_W-1-b];
-  end
+  generate
+    if (RG_W > 0) assign rev_cnt_lo = { << {cnt[RG_W-1:0]} };
+    else          assign rev_cnt_lo = 'h0;
+  endgenerate
 
   // Datapath -------------------------------------------------------------------------------------
   // Reinterpret the registered input row as N_BANK col-groups (CG_BITS each).
@@ -216,12 +213,11 @@ module pep_mmacc_splitc_sxt_reorder
   // no explicit modulo. Parameter check of this constraint is in the guardrails.
   // Synthesised as a log-stage barrel on N_BANK CG_BITS-wide lanes.
   logic [N_BANK-1:0][CG_BITS-1:0] wr_in;
-  always_comb begin
-    for (int b = 0; b < N_BANK; b++) begin
-      automatic logic [N_BANK_W-1:0] wr_src = N_BANK_W'(b) - cnt_hi;
-      wr_in[b] = s1_cg[wr_src];
+  generate
+    for (genvar b = 0; b < N_BANK; b++) begin : gen_wr_rot
+      assign wr_in[b] = s1_cg[N_BANK_W'(b) - cnt_hi];
     end
-  end
+  endgenerate
 
   // Per-bank single-port LUTRAM - Bank-skewed transpose buffer
   // The outer dimension is unpacked so each bank is its own array slice;
@@ -229,9 +225,8 @@ module pep_mmacc_splitc_sxt_reorder
   // This shape is what the distributed-RAM extractor recognises per UG901 RAM HDL Coding Techniques
   (* keep = "true" *) logic [N_BANK-1:0][CG_BITS-1:0] bank_out;
 
-  genvar gb;
   generate
-    for (gb = 0; gb < N_BANK; gb++) begin : gen_bank
+    for (genvar gb = 0; gb < N_BANK; gb++) begin : gen_bank
       (* RAM_STYLE = "distributed" *) logic [CG_BITS-1:0] mem [STG_ITER_NB];
 
       // Write: one bank, one address (cnt), one CG_BITS word per cycle.
@@ -306,17 +301,16 @@ module pep_mmacc_splitc_sxt_reorder
   //   m_hi in [0, CG_W)    -> chooses which MOD_Q_W lane within that bank's entry
   logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] rd_data;
 
-  always_comb begin
-    for (int m_lo = 0; m_lo < N_BANK; m_lo++) begin
-      automatic logic [N_BANK_W-1:0] rev_m_lo = 'h0;
-      automatic logic [N_BANK_W-1:0] band_idx;
-      for (int b = 0; b < N_BANK_W; b++)
-        rev_m_lo[b] = m_lo[N_BANK_W-1-b];
-      band_idx = rev_m_lo + cnt_hi_q;
-      for (int m_hi = 0; m_hi < CG_W; m_hi++)
-        rd_data[m_hi * N_BANK + m_lo] = bank_out_q[band_idx][m_hi*MOD_Q_W +: MOD_Q_W];
+  generate
+    for (genvar m_lo = 0; m_lo < N_BANK; m_lo++) begin : gen_out_unpack
+      localparam logic [N_BANK_W-1:0] REV_M_LO = { << {N_BANK_W'(m_lo)} };
+      logic [N_BANK_W-1:0] band_idx;
+      assign band_idx = REV_M_LO + cnt_hi_q;
+      for (genvar m_hi = 0; m_hi < CG_W; m_hi++) begin : gen_lane
+        assign rd_data[m_hi * N_BANK + m_lo] = bank_out_q[band_idx][m_hi*MOD_Q_W +: MOD_Q_W];
+      end
     end
-  end
+  endgenerate
 
   // Body bypass: body scalar lives at flat index 0 (rev(0)=0; step1_data[0] = s0_data[0][0]).
   // Piped path on body: s0_data[0][0] -> step1_data[0] -> s1_data[0] -> (mid pipe) -> s1_data_lane0_q.
