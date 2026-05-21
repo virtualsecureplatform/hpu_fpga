@@ -26,46 +26,23 @@ def reverse (v, bit_nb):
   return res
 
 # ==============================================================================
-# Main
+# Reference reorder
 # ==============================================================================
-if __name__ == '__main__':
-#=====================================================
-# Default
-#=====================================================
-# smaller example  : R=2, PSI=2, S=5
-# original example : R=2, PSI=8, S=7
-# N4096 example    : R=2, PSI=64, S=12
-    R = 2
-    PSI = 2
-    S = 5
-
-#=====================================================
-# Parse input arguments
-#=====================================================
-    parser = argparse.ArgumentParser(description = "Check mmacc sample extract.")
-    parser.add_argument('-R',  dest='radix',   type=int, help="Radix. (Only value 2 has been verified)",
-                               default=R)
-    parser.add_argument('-P',  dest='psi',     type=int, help="PSI.",
-                               default=PSI)
-    parser.add_argument('-S',  dest='stage',   type=int, help="Number of NTT stages.",
-                               default=S)
-    parser.add_argument("-v",  dest="verbose", help="Run in verbose mode.", action="store_true",
-                               default=False)
-
-
-    args = parser.parse_args()
-
-    VERBOSE = args.verbose
-    R = args.radix
-    PSI = args.psi
-    S = args.stage
-
-    # Deduced parameters
-    N = R ** S
+# Pure-algorithm description of the reverse -> natural reorder. Acts as both the
+# golden model (compared against ct_nat) and the source of `step1_l`, which the
+# two RTL models below consume as their input buffer.
+def run_reference(R, PSI, S, VERBOSE=False):
+    """
+    Returns (ct_nat, step1_l, res):
+      - ct_nat : natural-order expected output [0..N-1]
+      - step1_l: per-row input buffer fed to the RTL models (STG_ITER_NB rows of R*PSI coefs)
+      - res    : reference reorder output (must equal ct_nat)
+    """
+    N           = R ** S
     STG_ITER_NB = N // (R*PSI)
-    N_SZ = S
-    STG_ITER_SZ = int(log(STG_ITER_NB,2))
-    RPSI_SZ = int(log(R*PSI,2))
+    N_SZ        = S
+    STG_ITER_W  = int(log(STG_ITER_NB, 2))
+    RD_COEF_W   = int(log(R*PSI, 2))
 
     ct_nat = []
     ct_rev = []
@@ -80,57 +57,53 @@ if __name__ == '__main__':
     # reverse in RxPSI
     step1_l = []
     for i in range(STG_ITER_NB):
-      step1_l.append([in_l[i][reverse(x,RPSI_SZ)] for x in range(R*PSI)])
+      step1_l.append([in_l[i][reverse(x, RD_COEF_W)] for x in range(R*PSI)])
 
     # Take each line, reverse in each line
     step2_l = []
     for i in range(R*PSI):
       for j in range(STG_ITER_NB):
         l = []
-        l.append(step1_l[reverse(j,STG_ITER_SZ)][i])
+        l.append(step1_l[reverse(j, STG_ITER_W)][i])
         step2_l.append(l)
 
     # Check result
     res = [x for l in step2_l for x in l]
 
-    for (a,b) in zip(ct_nat, res):
-      if (a != b):
-        print(f"ERROR> exp={a} seen={b}")
+    return ct_nat, step1_l, res
 
-    # =============================================================================================
-    # RTL model: two-stage indexed mux (should mirrors pep_mmacc_splitc_sxt_reorder.sv)
-    # =============================================================================================
-    # Same algorithm as the reference loop above, but laid out as I want RTL to synthesises
-    #   - buf_data[r] is written one row per cycle during the write phase (r == cnt, takes STG_ITER_NB cycles to fill).
-    #   - A combinational permutation layer buf_data_perm[k][m] precomputes the bit-reverse + i_outer mapping so the runtime read becomes the clean
-    #     indexed form rd_data[m] = buf_data_perm[cnt][m] (a shape Vivado can
-    #     map to MUXF7/MUXF8 hardened muxes).
-    #   - The cnt-indexed mux is split into cnt_hi (stage 1) and cnt_lo (stage 2) with a register stage between,
-    #     so each LUT level handles half the bits.
-    #
-    # The model emits one beat of RD_COEF_NB = R*PSI coefs per cycle for
-    # STG_ITER_NB read cycles, then one final drain cycle for the pipelined
-    # stage 2 output.
-
-    RD_COEF_NB = R * PSI
-    RD_COEF_W  = RPSI_SZ # =int(log(STG_ITER_NB,2))
-
-    if VERBOSE:
-      print("Input Buffer")
-      print(in_l, " \n")
+# ==============================================================================
+# RTL model: two-stage mux (historical)
+# ==============================================================================
+# Same algorithm as the reference loop above, but laid out as I want RTL to synthesises
+#   - buf_data[r] is written one row per cycle during the write phase (r == cnt, takes STG_ITER_NB cycles to fill).
+#   - A combinational permutation layer buf_data_perm[k][m] precomputes the bit-reverse + j_outer mapping so the runtime read becomes the clean
+#     indexed form rd_data[m] = buf_data_perm[cnt][m] (a shape Vivado can
+#     map to MUXF7/MUXF8 hardened muxes).
+#   - The cnt-indexed mux is split into cnt_hi (stage 1) and cnt_lo (stage 2) with a register stage between,
+#     so each LUT level handles half the bits.
+#
+# The model emits one beat of RD_COEF_NB = R*PSI coefs per cycle for
+# STG_ITER_NB read cycles, then one final drain cycle for the pipelined
+# stage 2 output.
+def run_two_stage_mux(R, PSI, S, step1_l, VERBOSE=False):
+    """Returns the flattened natural-order output of the two-stage-mux model."""
+    N           = R ** S
+    STG_ITER_NB = N // (R*PSI)
+    STG_ITER_W  = int(log(STG_ITER_NB, 2))
+    RD_COEF_NB  = R * PSI
+    RD_COEF_W   = int(log(RD_COEF_NB, 2))
 
     # Write phase: addressed write `buf_data[cnt] <= s1_data` per cycle, matches the RTL's
     # LUTRAM-inferred write pattern.
-    buf_data = [None] * STG_ITER_NB
-    for cnt in range(STG_ITER_NB):
-      buf_data[cnt] = list(step1_l[cnt])
+    buf_data = [list(step1_l[cnt]) for cnt in range(STG_ITER_NB)]
 
     if VERBOSE:
       print("Step 1 buffer")
       print(buf_data, " \n")
 
     # Permutation layer (pure wiring in RTL) ------------------------------------------------------
-    # for every (k, m) pair, compute the bit-reverse + i_outer mapping and
+    # for every (k, m) pair, compute the bit-reverse + j_outer mapping and
     # present buf_data_perm as a clean array that the runtime read indexes on cnt.
 
     # Source-address helpers: for output (beat k, lane m), return the (row, col)
@@ -140,12 +113,12 @@ if __name__ == '__main__':
     #   -> low bits (bit-reversed) pick the row.
     def buf_col(k, m):
       flat_p = (k << RD_COEF_W) | m
-      return flat_p >> STG_ITER_SZ
+      return flat_p >> STG_ITER_W
 
     def buf_row(k, m):
       flat_p = (k << RD_COEF_W) | m
       j_outer = flat_p & (STG_ITER_NB - 1)
-      return reverse(j_outer, STG_ITER_SZ)
+      return reverse(j_outer, STG_ITER_W)
 
     buf_data_perm = [
       [buf_data[buf_row(k, m)][buf_col(k, m)] for m in range(RD_COEF_NB)]
@@ -157,8 +130,8 @@ if __name__ == '__main__':
       print(buf_data_perm, " \n")
 
     # Two-stage mux split parameters --------------------------------------------------------------
-    HI_SZ = (STG_ITER_SZ + 1) // 2
-    LO_SZ = STG_ITER_SZ // 2
+    HI_SZ = (STG_ITER_W + 1) // 2
+    LO_SZ = STG_ITER_W // 2
     N_LO  = 1 << LO_SZ
 
     rtl_out_beats = []
@@ -188,160 +161,228 @@ if __name__ == '__main__':
       else:
         valid_q = False
 
-    # Flatten the cycle-major beat stream: beat k holds natural-order coefs in [k*RD_COEF_NB .. (k+1)*RD_COEF_NB - 1],
-    # so flattening is the natural output order.
-    rtl_res = [x for beat in rtl_out_beats for x in beat]
-
     if VERBOSE:
       print("Two-stage mux split")
-      print(f"RTL params: STG_ITER_NB={STG_ITER_NB} STG_ITER_SZ={STG_ITER_SZ} "
+      print(f"RTL params: STG_ITER_NB={STG_ITER_NB} STG_ITER_W={STG_ITER_W} "
             f"RD_COEF_NB={RD_COEF_NB} HI_SZ={HI_SZ} LO_SZ={LO_SZ} N_LO={N_LO}")
       for k, beat in enumerate(rtl_out_beats):
         print(f"  cycle {k}: {beat}")
 
-    for (a, b) in zip(ct_nat, rtl_res):
-      if (a != b):
-        print(f"RTL ERROR> exp={a} seen={b}")
+    # Flatten the cycle-major beat stream: beat k holds natural-order coefs in [k*RD_COEF_NB .. (k+1)*RD_COEF_NB - 1],
+    # so flattening is the natural output order.
+    return [x for beat in rtl_out_beats for x in beat]
 
-    # =============================================================================================
-    # RTL model: diagonal-skewed bank memory (mirrors current pep_mmacc_splitc_sxt_reorder.sv)
-    # =============================================================================================
-    # Motivation
-    # ----------
-    # The two-stage mux model above mirrors the old RTL: a single 3D `buf_data` transpose buffer
-    # drained through a cnt_hi/cnt_lo split mux. Vivado would not infer that shape as distributed
-    # RAM (Synth 8-5856) and fell back to ~131k FFs, causing timing violations. This snippet
-    # reshapes `buf_data` into LUTRAM-friendly banks.
-    #
-    # Idea
-    # ----
-    # LUTRAM gives 1 write + 1 read port per bank. With the naive layout (bank = col-group g), a
-    # row-write hits every bank once (fine), but a column-read targets one bank N_BANK times -
-    # incompatible with the 1R/cycle budget. The diagonal skew below makes BOTH row-writes and
-    # column-reads touch every bank exactly once, so 1W1R per bank is sufficient.
-    #
-    # Place cell (row=i, col-group=g) in bank b = (i + g) mod N_BANK (instead of bank g):
-    #
-    #   4x4 ex  g=0   g=1   g=2   g=3
-    #   row=0    B0    B1    B2    B3
-    #   row=1    B1    B2    B3    B0
-    #   row=2    B2    B3    B0    B1
-    #   row=3    B3    B0    B1    B2
-    #
-    # Properties:
-    #   - Fix row i: as g sweeps 0..N_BANK-1, b sweeps 0..N_BANK-1 -> exactly 1 write per bank.
-    #   - Fix col-group g: as i sweeps 0..N_BANK-1, b sweeps 0..N_BANK-1 -> exactly 1 read per bank.
-    #
-    # Generalisation (RD_COEF_NB vs STG_ITER_NB)
-    # ------------------------------------------
-    # The first version used N_BANK = STG_ITER_NB; it works when RD_COEF_NB >= STG_ITER_NB (PSI64)
-    # but not when RD_COEF_NB < STG_ITER_NB (PSI16), we generalise:
-    #
-    #   N_BANK = min(STG_ITER_NB, RD_COEF_NB)   # independent 1W1R banks
-    #   RG_H   = STG_ITER_NB / N_BANK           # row-group height   (=1 in PSI64)
-    #   CG_W   = RD_COEF_NB  / N_BANK           # lanes per entry    (=1 in PSI16)
-    #
-    # Buffer geometry (logical STG_ITER_NB x RD_COEF_NB cell array, MOD_Q_W bits per cell):
-    #   row = rg * RG_H + r_lo,   rg in [0,N_BANK),  r_lo in [0,RG_H)
-    #   col = cg * CG_W + c_lo,   cg in [0,N_BANK),  c_lo in [0,CG_W)
-    #
-    # Diagonal skew (generalised):
-    #   bank b      = (rg + cg) mod N_BANK
-    #   addr in b   = rg * RG_H + r_lo       (depth = STG_ITER_NB, same in both regimes)
-    #   entry width = CG_W * MOD_Q_W bits
-    def run_bank_skew_model():
-      # Parameters --------------------------------------------------------------------------------
-      N_BANK    = min(STG_ITER_NB, RD_COEF_NB)                          # prev: N_BANK = STG_ITER_NB
-      N_BANK_SZ = int(log(N_BANK, 2))                                   # prev: (not present)
-      RG_H      = STG_ITER_NB // N_BANK                                 # prev: (not present, implicit 1)
-      CG_W      = RD_COEF_NB  // N_BANK                                 # prev: CG_W = RD_COEF_NB // STG_ITER_NB
-      RG_SZ     = STG_ITER_SZ - N_BANK_SZ  # = log2(RG_H), 0 in Case A  # prev: (not present)
-      CG_SZ     = RPSI_SZ     - N_BANK_SZ  # = log2(CG_W), 0 in Case B  # prev: (not present)
+# ==============================================================================
+# RTL model: diagonal-skewed bank memory (mirrors current pep_mmacc_splitc_sxt_reorder.sv)
+# ==============================================================================
+# Motivation
+# ----------
+# The two-stage mux model above mirrors the old RTL: a single 3D `buf_data` transpose buffer
+# drained through a cnt_hi/cnt_lo split mux. Vivado would not infer that shape as distributed
+# RAM (Synth 8-5856) and fell back to ~131k FFs, causing timing violations. This snippet
+# reshapes `buf_data` into LUTRAM-friendly banks.
+#
+# Idea
+# ----
+# LUTRAM gives 1 write + 1 read port per bank. With the naive layout (bank = col-group g), a
+# row-write hits every bank once (fine), but a column-read targets one bank N_BANK times -
+# incompatible with the 1R/cycle budget. The diagonal skew below makes BOTH row-writes and
+# column-reads touch every bank exactly once, so 1W1R per bank is sufficient.
+#
+# Place cell (row=i, col-group=g) in bank b = (i + g) mod N_BANK (instead of bank g):
+#
+#   4x4 ex  g=0   g=1   g=2   g=3
+#   row=0    B0    B1    B2    B3
+#   row=1    B1    B2    B3    B0
+#   row=2    B2    B3    B0    B1
+#   row=3    B3    B0    B1    B2
+#
+# Properties:
+#   - Fix row i: as g sweeps 0..N_BANK-1, b sweeps 0..N_BANK-1 -> exactly 1 write per bank.
+#   - Fix col-group g: as i sweeps 0..N_BANK-1, b sweeps 0..N_BANK-1 -> exactly 1 read per bank.
+#
+# Generalisation (RD_COEF_NB vs STG_ITER_NB)
+# ------------------------------------------
+# A first version used N_BANK = STG_ITER_NB; it works when RD_COEF_NB >= STG_ITER_NB (PSI64)
+# but not when RD_COEF_NB < STG_ITER_NB (PSI16), we generalise:
+#
+#   N_BANK = min(STG_ITER_NB, RD_COEF_NB)   # independent 1W1R banks
+#   RG_H   = STG_ITER_NB / N_BANK           # row-group height   (=1 in PSI64)
+#   CG_W   = RD_COEF_NB  / N_BANK           # lanes per entry    (=1 in PSI16)
+#
+# Buffer geometry (logical STG_ITER_NB x RD_COEF_NB cell array, MOD_Q_W bits per cell):
+#   row = rg * RG_H + r_lo,   rg in [0,N_BANK),  r_lo in [0,RG_H)
+#   col = cg * CG_W + c_lo,   cg in [0,N_BANK),  c_lo in [0,CG_W)
+#
+# Diagonal skew (generalised):
+#   bank b      = (rg + cg) mod N_BANK
+#   addr in b   = rg * RG_H + r_lo       (depth = STG_ITER_NB, same in both regimes)
+#   entry width = CG_W * MOD_Q_W bits
+def run_bank_skew(R, PSI, S, step1_l, VERBOSE=False):
+    """Returns the flattened natural-order output of the diagonal-bank-skew model."""
+    N           = R ** S
+    STG_ITER_NB = N // (R*PSI)
+    STG_ITER_W  = int(log(STG_ITER_NB, 2))
+    RD_COEF_NB  = R * PSI
 
-      # Per-bank memory: mem[b][addr] holds a CG_W-wide slice (list of CG_W coefs).
-      mem = [[None] * STG_ITER_NB for _ in range(N_BANK)]                         # prev: mem = [[None] * N_BANK for _ in range(N_BANK)]
+    N_BANK   = min(STG_ITER_NB, RD_COEF_NB)
+    N_BANK_W = int(log(N_BANK, 2))
+    RG_H     = STG_ITER_NB // N_BANK
+    CG_W     = RD_COEF_NB  // N_BANK
+    RG_W     = STG_ITER_W  - N_BANK_W
 
-      # Write phase: one row per cycle, write rotator + per-bank addressed write.
-      for cnt in range(STG_ITER_NB):
-        cnt_hi  = cnt >> RG_SZ                                                    # prev: (not present, rotator amount was full cnt)
-        s1_data = step1_l[cnt]
-        # Reinterpret the RD_COEF_NB-wide row as N_BANK col-groups of CG_W lanes.
-        s1_cg   = [s1_data[g*CG_W:(g+1)*CG_W] for g in range(N_BANK)]
-        # Write-rotator: bank b takes col-group (b - cnt_hi) mod N_BANK.
+    # Per-bank memory: mem[b][addr] holds a CG_W-wide slice (list of CG_W coefs).
+    mem = [[None] * STG_ITER_NB for _ in range(N_BANK)]
+
+    # Write phase: one row per cycle, write rotator + per-bank addressed write.
+    for cnt in range(STG_ITER_NB):
+      cnt_hi  = cnt >> RG_W
+      s1_data = step1_l[cnt]
+      # Reinterpret the RD_COEF_NB-wide row as N_BANK col-groups of CG_W lanes.
+      s1_cg   = [s1_data[g*CG_W:(g+1)*CG_W] for g in range(N_BANK)]
+      # Write-rotator: bank b takes col-group (b - cnt_hi) mod N_BANK.
+      for b in range(N_BANK):
+        mem[b][cnt] = list(s1_cg[(b - cnt_hi) % N_BANK])
+
+    # Read phase: STG_ITER_NB read cycles + 1 drain cycle for the bank_out pipeline register.
+    out_beats  = []
+    bank_out_q = None
+    cnt_q      = None
+    valid_q    = False
+
+    for cycle in range(STG_ITER_NB + 1):
+      # Stage 2 (post-pipe): de-skew + lane unpack.
+      if valid_q:
+        cnt_hi_q = cnt_q >> RG_W
+        rd_data  = [0] * RD_COEF_NB
+        # Lane (m_hi, m_lo) sources from bank b = (rev(m_lo) + cnt_hi_q) mod N_BANK.
+        for m_lo in range(N_BANK):
+          rg_m  = reverse(m_lo, N_BANK_W)
+          b     = (rg_m + cnt_hi_q) % N_BANK
+          lanes = bank_out_q[b]
+          for m_hi in range(CG_W):
+            rd_data[m_hi * N_BANK + m_lo] = lanes[m_hi]
+        out_beats.append(rd_data)
+
+      # Stage 1 (pre-pipe): per-bank independent read.
+      if cycle < STG_ITER_NB:
+        cnt        = cycle
+        cnt_hi     = cnt >> RG_W
+        cnt_lo     = cnt & (RG_H - 1)
+        rev_cnt_lo = reverse(cnt_lo, RG_W)  # 0 when RG_W=0
+        bank_out   = []
         for b in range(N_BANK):
-          mem[b][cnt] = list(s1_cg[(b - cnt_hi) % N_BANK])                        # prev: mem[b][cnt] = list(s1_cg[(b - cnt) % N_BANK])
-
-      # Read phase: STG_ITER_NB read cycles + 1 drain cycle for the bank_out pipeline register.
-      out_beats  = []
-      bank_out_q = None
-      cnt_q      = None
-      valid_q    = False
-
-      for cycle in range(STG_ITER_NB + 1):
-        # Stage 2 (post-pipe): de-skew + lane unpack.
-        if valid_q:
-          k_hi    = cnt_q >> RG_SZ                                                # prev: (not present)
-          rd_data = [0] * RD_COEF_NB
-          # Lane (m_hi, m_lo) sources from bank b = (rev(m_lo) + k_hi) mod N_BANK.
-          # prev: rd_row = [bank_out_q[(i + cnt_q) % N_BANK] for i in range(N_BANK)]
-          # prev: for t in range(STG_ITER_NB):
-          # prev:   rev_t = reverse(t, STG_ITER_SZ)
-          # prev:   for s in range(CG_W):
-          # prev:     rd_data[s*STG_ITER_NB + t] = rd_row[rev_t][s]
-          for m_lo in range(N_BANK):
-            rg_m  = reverse(m_lo, N_BANK_SZ)
-            b     = (rg_m + k_hi) % N_BANK
-            lanes = bank_out_q[b]
-            for m_hi in range(CG_W):
-              rd_data[m_hi * N_BANK + m_lo] = lanes[m_hi]
-          out_beats.append(rd_data)
-
-        # Stage 1 (pre-pipe): per-bank independent read.
-        if cycle < STG_ITER_NB:
-          cnt      = cycle
-          k_hi     = cnt >> RG_SZ                                                 # prev: (not present)
-          k_lo     = cnt & (RG_H - 1) if RG_H > 1 else 0                          # prev: (not present)
-          r_lo     = reverse(k_lo, RG_SZ)  # 0 when RG_SZ=0                       # prev: (not present)
-          # prev: bank_out = [mem[b][(b - cnt) % N_BANK] for b in range(N_BANK)]
-          bank_out = []
-          for b in range(N_BANK):
-            rg   = (b - k_hi) % N_BANK
-            addr = rg * RG_H + r_lo
-            bank_out.append(mem[b][addr])
-          bank_out_q = bank_out
-          cnt_q      = cnt
-          valid_q    = True
-        else:
-          valid_q = False
-
-      return [x for beat in out_beats for x in beat]
-
-    bank_res = run_bank_skew_model()
+          rg   = (b - cnt_hi) % N_BANK
+          addr = rg * RG_H + rev_cnt_lo
+          bank_out.append(mem[b][addr])
+        bank_out_q = bank_out
+        cnt_q      = cnt
+        valid_q    = True
+      else:
+        valid_q = False
 
     if VERBOSE:
       print("Bank-skew model")
-      print(f"  N_BANK={STG_ITER_NB} CG_W={RD_COEF_NB // STG_ITER_NB}")
-      print(f"  out: {bank_res}")
+      print(f"RTL params: STG_ITER_NB={STG_ITER_NB} STG_ITER_W={STG_ITER_W} "
+            f"RD_COEF_NB={RD_COEF_NB} N_BANK={N_BANK} RG_H={RG_H} CG_W={CG_W}")
+      for k, beat in enumerate(out_beats):
+        print(f"  cycle {k}: {beat}")
 
-    for (a, b) in zip(ct_nat, bank_res):
-      if (a != b):
-        print(f"BANK ERROR> exp={a} seen={b}")
+    return [x for beat in out_beats for x in beat]
 
-    # ==========================================================================
-    # Cross-comparison: reference (res) vs RTL models (rtl_res, bank_res)
-    # ==========================================================================
-    if res == rtl_res:
-      print(f"\nOK: reference and two-stage-mux model agree ({len(res)} elements, R={R} PSI={PSI} S={S}).")
-    else:
-      print("\nMISMATCH between reference and two-stage-mux model:")
-      for (i, (a, b)) in enumerate(zip(res, rtl_res)):
-        if a != b:
-          print(f"  idx={i}: ref={a} rtl={b}")
+# ==============================================================================
+# run_check: drive all three models for a given (R, PSI, S) point and cross-check
+# ==============================================================================
+def run_check(R, PSI, S, VERBOSE=False):
+    """
+    Runs the reference and both RTL models, cross-checks them, and prints a
+    one-line status. Returns True iff every check passes.
+    """
+    ct_nat, step1_l, res = run_reference(R, PSI, S, VERBOSE)
+    rtl_res              = run_two_stage_mux(R, PSI, S, step1_l, VERBOSE)
+    bank_res             = run_bank_skew(R, PSI, S, step1_l, VERBOSE)
 
-    if res == bank_res:
-      print(f"OK: reference and bank-skew model agree ({len(res)} elements, R={R} PSI={PSI} S={S}).")
-    else:
-      print("MISMATCH between reference and bank-skew model:")
-      for (i, (a, b)) in enumerate(zip(res, bank_res)):
-        if a != b:
-          print(f"  idx={i}: ref={a} bank={b}")
+    N           = R ** S
+    STG_ITER_NB = N // (R*PSI)
+    RD_COEF_NB  = R * PSI
+
+    ref_ok      = (res      == ct_nat)
+    rtl_ok      = (rtl_res  == ct_nat)
+    bank_ok     = (bank_res == ct_nat)
+    mux_xcheck  = (res      == rtl_res)
+    bank_xcheck = (res      == bank_res)
+
+    if VERBOSE:
+      def report(name, exp, seen):
+        if exp == seen:
+          print(f"OK: {name} ({len(exp)} elements, R={R} PSI={PSI} S={S}).")
+        else:
+          print(f"MISMATCH: {name}")
+          for (i, (a, b)) in enumerate(zip(exp, seen)):
+            if a != b:
+              print(f"  idx={i}: exp={a} seen={b}")
+      report("reference vs ct_nat",                 ct_nat, res)
+      report("two-stage-mux vs ct_nat",             ct_nat, rtl_res)
+      report("bank-skew vs ct_nat",                 ct_nat, bank_res)
+      report("reference vs two-stage-mux (xcheck)", res,    rtl_res)
+      report("reference vs bank-skew (xcheck)",     res,    bank_res)
+
+    ok = ref_ok and rtl_ok and bank_ok and mux_xcheck and bank_xcheck
+    status = "OK  " if ok else "FAIL"
+    print(f"[{status}] R={R} PSI={PSI:>4} S={S:>3}  "
+          f"N={N:>6} STG_ITER_NB={STG_ITER_NB:>4} RD_COEF_NB={RD_COEF_NB:>4}")
+    return ok
+
+
+# ==============================================================================
+# Main
+# ==============================================================================
+if __name__ == '__main__':
+#=====================================================
+# Default
+#=====================================================
+# smaller example  : R=2, PSI=2, S=5
+# original example : R=2, PSI=8, S=7
+# N4096 example    : R=2, PSI=64, S=12
+    R = 2
+    PSI = 2
+    S = 5
+
+#=====================================================
+# Parse input arguments
+#=====================================================
+    parser = argparse.ArgumentParser(description = "Check mmacc sample extract.")
+    parser.add_argument('-R',  dest='radix',   type=int, help="Radix. (Only value 2 has been verified)",
+                               default=R)
+    parser.add_argument('-P',  dest='psi',     type=int, help="PSI.",
+                               default=PSI)
+    parser.add_argument('-S',  dest='stage',   type=int, help="Number of NTT stages.",
+                               default=S)
+    parser.add_argument("-v",  dest="verbose", help="Run in verbose mode.", action="store_true",
+                               default=False)
+    parser.add_argument("-t",  dest="test",    help="Sweep over relevant (PSI, S) combinations.",
+                               action="store_true", default=False)
+
+    args = parser.parse_args()
+
+    if args.test:
+      # R is fixed to 2 (only radix verified). For each PSI, S must satisfy
+      # STG_ITER_NB = 2^S / (2*PSI) >= 2 (so the mux split is non-degenerate),
+      # i.e. S >= log2(PSI) + 2. We cap S to keep runtime reasonable.
+      R = 2
+      psi_list = [2, 4, 8, 16, 32, 64, 128]
+      s_span   = 6  # number of S values per PSI
+      total = 0
+      fails = 0
+      for PSI in psi_list:
+        s_min = int(log(PSI, 2)) + 2
+        for S in range(s_min, s_min + s_span):
+          total += 1
+          if not run_check(R, PSI, S, VERBOSE=False):
+            fails += 1
+      print(f"\nSweep done: {total - fails}/{total} configurations passed "
+            f"({fails} failure(s)).")
+      sys.exit(0 if fails == 0 else 1)
+
+    ok = run_check(args.radix, args.psi, args.stage, VERBOSE=args.verbose)
+    sys.exit(0 if ok else 1)

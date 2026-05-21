@@ -4,17 +4,20 @@
 // ----------------------------------------------------------------------------------------------
 // Description  : Reorder module for sample extract.
 // ----------------------------------------------------------------------------------------------
+// This module has been made for Xilinx FPGA only : its architecture has been choosen depending
+// on V80 ressource usage we had avail. This module has constraints embeded in the file.
+//
 // Converts from bit-reversed to natural coefficient order (see sw/monomial_mult/mm_reorder.py).
 //
 // Step 1: bit-reversal within each R*PSI chunk (RD_COEF_W bits)
-// Step 2: transpose + bit-reversal on the stage-iteration index (STG_ITER_SZ bits)
+// Step 2: transpose + bit-reversal on the stage-iteration index (STG_ITER_W bits)
 //
 // Body beats bypass the buffer (single scalar, no reorder needed).
 //
 // For understanding this module see python file sw/monomial_mult/mm_reorder.py.
 // ==============================================================================================
 
-// without keep_hierarchy vivado retimes some registers and loose the objective and deletes all
+// without keep_hierarchy vivado retimes some registers (s1_data) and ends up deleting all logic
 (* keep_hierarchy = "yes" *)
 module pep_mmacc_splitc_sxt_reorder
   import param_tfhe_pkg::*;
@@ -121,17 +124,17 @@ module pep_mmacc_splitc_sxt_reorder
     for (int i = 0; i < RD_COEF_NB; i++) begin // for x in range(R*PSI)
       automatic logic [RD_COEF_W-1:0] rev_i = '0;
       for (int b = 0; b < RD_COEF_W; b++)
-        rev_i[b] = i[RD_COEF_W-1-b];           // reverse(x,RPSI_SZ)
+        rev_i[b] = i[RD_COEF_W-1-b];           // reverse(x, RD_COEF_W)
       step1_data[i] = in_data_flat[rev_i];
     end
 
   // =========================================================================================== --
   // Step 1 pipeline
-  // =========================================================================================== --
   // Register step1_data close to the bank-mem write rotator.
   // Without this stage the bit-reversed data (RD_COEF_NB*MOD_Q_W bits) broadcasts combinationally
-  // into the sinks. Resulting routing star limits placement freedom for buf_data.
-  // Keep is mandatory otherwise vivado removes the signal leading to catastophic failure
+  // into the sinks. Resulting routing star limits placement freedom for the buffer.
+  // =========================================================================================== --
+  // Keep is mandatory : Vivado will remove this signal & this leads to catastrophic failure
   (* keep = "true" *) logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] s1_data;
   logic                                                   s1_is_body;
   logic                                                   s1_vld;
@@ -158,18 +161,17 @@ module pep_mmacc_splitc_sxt_reorder
 
   // =========================================================================================== --
   // Step 2
-  // =========================================================================================== --
-  // To help placement we write data into LUTRAMs : this modules resides in SLR2 that is croweded.
+  // To help placement we write data into LUTRAMs : this module resides in SLR2 which is crowded.
   // Bodies bypass the buffer: while filling a mask group (~buf_avail), a body beat may arrive at
   // any cnt in [0..STG_ITER_NB-1].
-
+  // =========================================================================================== --
   // Control --------------------------------------------------------------------------------------
   logic                  buf_avail; // 0 = write phase, 1 = read phase
   logic                  pipe_rdy;  // Pre-pipe ready: controls buffer drain rate
+  logic [STG_ITER_W-1:0] cnt;       // shared counter for write and read phases
+  logic                  cnt_last;
   logic                  wr_en;
   logic                  rd_en;
-  logic [STG_ITER_W-1:0] cnt; // shared counter for write and read phases
-  logic                  cnt_last;
 
   assign wr_en = ~buf_avail & s1_vld & ~s1_is_body;
   assign rd_en =  buf_avail & pipe_rdy;
@@ -187,17 +189,18 @@ module pep_mmacc_splitc_sxt_reorder
   assign cnt_last = (cnt == STG_ITER_W'(STG_ITER_NB - 1));
 
   // Slice the shared counter:
-  //   cnt_hi = cnt[STG_ITER_W-1:RG_W] - drives the write/read rotator fits in N_BANK_W bits since cnt_hi in [0, N_BANK).
-  //   rev_cnt_lo = rev(cnt[RG_W-1:0]) - offset within the row-group for read address.
-  logic [N_BANK_W-1:0]   cnt_hi;
-  logic [STG_ITER_W-1:0] rev_cnt_lo;
+  //   cnt_hi     = cnt[STG_ITER_W-1:RG_W] - drives the write/read rotator, N_BANK_W bits (cnt_hi in [0, N_BANK)).
+  //   rev_cnt_lo = rev(cnt[RG_W-1:0])     - offset within the row-group for read address, RG_W bits.
+  // REV_CNT_LO_W clamps to >=1 so the type is legal when RG_W=0 (RD_COEF_NB >= STG_ITER_NB);
+  // in that case rev_cnt_lo is a dummy 1-bit zero that zero-extends harmlessly into rd_addr_b.
+  localparam int REV_CNT_LO_W = (RG_W == 0) ? 1 : RG_W;
+  logic [N_BANK_W-1:0]     cnt_hi;
+  logic [REV_CNT_LO_W-1:0] rev_cnt_lo;
 
   assign cnt_hi = cnt[STG_ITER_W-1:RG_W];
 
-  // Bit-reverse cnt_lo over RG_W bits, kept at STG_ITER_W width so the concat below is uniform.
-  // Upper bits stay 0; when RG_W=0 the for-loop body never executes and rev_cnt_lo == 0.
   always_comb begin
-    rev_cnt_lo = 'h0;
+    rev_cnt_lo = '0;
     for (int b = 0; b < RG_W; b++)
       rev_cnt_lo[b] = cnt[RG_W-1-b];
   end
@@ -210,7 +213,7 @@ module pep_mmacc_splitc_sxt_reorder
 
   // Write rotator: wr_in[b] = s1_cg[(b - cnt_hi) mod N_BANK].
   // Subtraction in N_BANK_W bits wraps modulo 2^N_BANK_W = N_BANK (N_BANK is a power of two), so
-  // no explicit modulo. Paramter check of this constraint is in the guardrails.
+  // no explicit modulo. Parameter check of this constraint is in the guardrails.
   // Synthesised as a log-stage barrel on N_BANK CG_BITS-wide lanes.
   logic [N_BANK-1:0][CG_BITS-1:0] wr_in;
   always_comb begin
@@ -235,13 +238,13 @@ module pep_mmacc_splitc_sxt_reorder
       always_ff @(posedge clk)
         if (wr_en) mem[cnt] <= wr_in[gb];
 
-      // Read addr = {rg_b, rev_cnt_lo[RG_W-1:0]} where rg_b = (gb - cnt_hi) mod N_BANK.
-      // RG_H is a power of two, so "* RG_H + rev_cnt_lo" reduces to a left-shift OR-ed with
-      // rev_cnt_lo - pure wiring. Case A (RG_W=0): collapses to rg_b.
+      // Read addr = (rg_b << RG_W) | rev_cnt_lo where rg_b = (gb - cnt_hi) mod N_BANK.
+      // RG_H is a power of two, so "* RG_H + rev_cnt_lo" reduces to a left-shift OR-ed with rev_cnt_lo.
       logic [N_BANK_W-1:0]   rg_b;
       logic [STG_ITER_W-1:0] rd_addr_b;
+
       assign rg_b         = N_BANK_W'(gb) - cnt_hi;
-      assign rd_addr_b    = (STG_ITER_W'(rg_b) << RG_W) | rev_cnt_lo;
+      assign rd_addr_b    = (STG_ITER_W'(rg_b) << RG_W) | STG_ITER_W'(rev_cnt_lo);
       assign bank_out[gb] = mem[rd_addr_b];
     end
   endgenerate
@@ -257,16 +260,17 @@ module pep_mmacc_splitc_sxt_reorder
   assign pipe_vld  = buf_avail | body_pass;
 
   logic [N_BANK-1:0][CG_BITS-1:0] bank_out_q;
-  logic [STG_ITER_W-1:0]          cnt_q;
+  logic [N_BANK_W-1:0]            cnt_hi_q;
   logic                           body_pass_q;
   logic [MOD_Q_W-1:0]             s1_data_lane0_q;
   logic                           mid1_vld;
   logic                           mid1_rdy;
 
   // Forward register: cuts the data path between bank read and the output de-skew rotator.
-  // Width = N_BANK * CG_BITS + STG_ITER_W + 1 + MOD_Q_W (≈ RD_COEF_NB*MOD_Q_W + STG_ITER_W + 1 + MOD_Q_W).
+  // Only cnt_hi (N_BANK_W bits) is consumed downstream, so the low RG_W bits of cnt are not piped.
+  // Width = N_BANK * CG_BITS + N_BANK_W + 1 + MOD_Q_W (= RD_COEF_NB*MOD_Q_W + N_BANK_W + 1 + MOD_Q_W).
   fifo_element #(
-    .WIDTH          (N_BANK*CG_BITS + STG_ITER_W + 1 + MOD_Q_W),
+    .WIDTH          (N_BANK*CG_BITS + N_BANK_W + 1 + MOD_Q_W),
     .DEPTH          (1),
     .TYPE_ARRAY     (4'h1),
     .DO_RESET_DATA  (1'b0),
@@ -275,11 +279,11 @@ module pep_mmacc_splitc_sxt_reorder
     .clk      (clk),
     .s_rst_n  (s_rst_n),
 
-    .in_data  ({bank_out, cnt, body_pass, s1_data[0]}),
+    .in_data  ({bank_out, cnt_hi, body_pass, s1_data[0]}),
     .in_vld   (pipe_vld),
     .in_rdy   (pipe_rdy),
 
-    .out_data ({bank_out_q, cnt_q, body_pass_q, s1_data_lane0_q}),
+    .out_data ({bank_out_q, cnt_hi_q, body_pass_q, s1_data_lane0_q}),
     .out_vld  (mid1_vld),
     .out_rdy  (mid1_rdy)
   );
@@ -287,10 +291,6 @@ module pep_mmacc_splitc_sxt_reorder
   // =========================================================================================== --
   // Output de-skew + lane unpack
   // =========================================================================================== --
-  // Recover the row-group index from the pipelined counter, N_BANK_W bits wide.
-  logic [N_BANK_W-1:0] cnt_hi_q;
-  assign cnt_hi_q = cnt_q[STG_ITER_W-1:RG_W];
-
   // Output unpack: build one natural-order beat of RD_COEF_NB lanes from the N_BANK bank outputs.
   // Three operations fused as pure wiring + one small adder:
   //   1. Bit-reverse on the low N_BANK_W bits of the lane index (rev_m_lo).
@@ -305,9 +305,10 @@ module pep_mmacc_splitc_sxt_reorder
   //   m_lo in [0, N_BANK)  -> chooses a bank (after bit-reverse + de-skew)
   //   m_hi in [0, CG_W)    -> chooses which MOD_Q_W lane within that bank's entry
   logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] rd_data;
+
   always_comb begin
     for (int m_lo = 0; m_lo < N_BANK; m_lo++) begin
-      automatic logic [N_BANK_W-1:0] rev_m_lo = '0;
+      automatic logic [N_BANK_W-1:0] rev_m_lo = 'h0;
       automatic logic [N_BANK_W-1:0] band_idx;
       for (int b = 0; b < N_BANK_W; b++)
         rev_m_lo[b] = m_lo[N_BANK_W-1-b];
@@ -318,7 +319,10 @@ module pep_mmacc_splitc_sxt_reorder
   end
 
   // Body bypass: body scalar lives at flat index 0 (rev(0)=0; step1_data[0] = s0_data[0][0]).
-  (* DONT_TOUCH = "TRUE" *) logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] pipe_data;
+  // Piped path on body: s0_data[0][0] -> step1_data[0] -> s1_data[0] -> (mid pipe) -> s1_data_lane0_q.
+  logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] pipe_data;
+  // (* DONT_TOUCH = "TRUE" *) logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] pipe_data;
+
   always_comb begin
     pipe_data = 'h0;
     if (body_pass_q) begin
@@ -331,7 +335,8 @@ module pep_mmacc_splitc_sxt_reorder
 // ============================================================================================== --
 // Output pipe
 // ============================================================================================== --
-// configured as forward/backward register to break control and data-path
+// Configured as forward/backward register to break control and data-path
+// This is not optionnal : control is tight and piping datapath helps vivado place.
   fifo_element #(
     .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
     .DEPTH          (2),
