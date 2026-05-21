@@ -16,3 +16,7 @@ set_property cascade_height 8 [get_cells -hier -regexp -filter {NAME =~ .*/pep_m
 # TODO: once stabilized remove this two constraints and re-impl
 set_property max_fanout 64 [get_nets -hier -regexp -filter { NAME =~ .*/pep_mmacc_infifo/data_sample.* }]
 set_property EXTRACT_ENABLE no [get_cells -hier -regexp -filter {NAME =~ .*/pep_mmacc_infifo/gen_psi_loop\[.*\].gen_r_loop\[.*\].gen_fifo.fifo_data/buf_data_reg.*}]
+
+# Theses two nets, without max fanouts are amongst worst negatives paths
+set_property max_fanout 32 [get_nets -hier -regexp -filter {NAME =~ .*/pep_mmacc_splitc_sxt_rot/x0_gram_sxt_rd_data_avail.*}]
+set_property max_fanout 32 [get_cells -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_join/join_fifo/gen_depth_gt_2.no_depth_is_power_of_2_gen.wp_lsb_reg\[.*\]"}]
