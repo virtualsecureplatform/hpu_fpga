@@ -320,8 +320,7 @@ module pep_mmacc_splitc_sxt_reorder
 
   // Body bypass: body scalar lives at flat index 0 (rev(0)=0; step1_data[0] = s0_data[0][0]).
   // Piped path on body: s0_data[0][0] -> step1_data[0] -> s1_data[0] -> (mid pipe) -> s1_data_lane0_q.
-  logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] pipe_data;
-  // (* DONT_TOUCH = "TRUE" *) logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] pipe_data;
+  (* DONT_TOUCH = "TRUE" *) logic [RD_COEF_NB-1:0][MOD_Q_W-1:0] pipe_data;
 
   always_comb begin
     pipe_data = 'h0;
