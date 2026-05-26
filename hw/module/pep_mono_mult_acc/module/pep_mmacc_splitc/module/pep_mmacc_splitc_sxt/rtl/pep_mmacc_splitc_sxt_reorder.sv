@@ -4,8 +4,8 @@
 // ----------------------------------------------------------------------------------------------
 // Description  : Reorder module for sample extract.
 // ----------------------------------------------------------------------------------------------
-// This module has been made for Xilinx FPGA only : its architecture has been choosen depending
-// on V80 ressource usage we had avail. This module has constraints embeded in the file.
+// This module has been made for Xilinx FPGA only : its architecture has been chosen depending
+// on V80 resource usage we had avail. This module has constraints embedded in the file.
 //
 // Converts from bit-reversed to natural coefficient order (see sw/monomial_mult/mm_reorder.py).
 //
