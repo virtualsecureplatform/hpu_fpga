@@ -328,12 +328,13 @@ module pep_mmacc_splitc_sxt_reorder
 // ============================================================================================== --
 // Output pipe
 // ============================================================================================== --
-// Configured as forward/backward register to break control and data-path
-// This is not optionnal : control is tight and piping datapath helps vivado place.
+// Configured as backward register to break only control.
+// Only control : it is tight too tight.
+// Adding pipe on data increases TNS non-negleably (+50%);
   fifo_element #(
     .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
-    .DEPTH          (2),
-    .TYPE_ARRAY     ({4'h1,4'h2}),
+    .DEPTH          (1),
+    .TYPE_ARRAY     (4'h2),
     .DO_RESET_DATA  (1'b0),
     .RESET_DATA_VAL (0)
   ) out_pipe (
