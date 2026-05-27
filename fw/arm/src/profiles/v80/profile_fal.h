@@ -96,6 +96,14 @@ extern FW_IF_CFG *pxSMBusIf;
 int iFAL_Initialise( uint64_t *pullAmcInitStatus );
 
 /**
+ * @brief   Initialise FAL components that depend on I2C being up
+ *          (SMBus PCIe link + Muxed Device FAL + Muxed Device Create).
+ *          Idempotent safe to call multiple times. Returns OK if I2C
+ *          isn't initialised yet (so the caller can keep retrying).
+ */
+int iFAL_InitI2CDependent( uint64_t *pullAmcInitStatus );
+
+/**
  * @brief   Initialise FAL Debug monitoring
  *
  * @return  none.

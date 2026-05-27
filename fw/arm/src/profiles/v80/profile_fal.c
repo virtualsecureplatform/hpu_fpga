@@ -377,13 +377,113 @@ uint8_t ucEnableSMBusPcieLink( void )
 /* Public Function implementations                                            */
 /******************************************************************************/
 
+int iFAL_InitI2CDependent( uint64_t *pullAmcInitStatus )
+{
+    int iStatus = OK;
+    int iMuxedDeviceStatus = OK;
+
+    if( NULL == pullAmcInitStatus )
+    {
+        return ERROR;
+    }
+
+    /* I2C not up yet. nothing to do, caller may retry later. */
+    if( AMC_CFG_I2C_INITIALISED != ( *pullAmcInitStatus & AMC_CFG_I2C_INITIALISED ) )
+    {
+        return OK;
+    }
+
+    /* Enable SMBus PCIe link (idempotent via SMBUS_PCIE_LINK_INITIALISED guard). */
+    if( 0 == ( *pullAmcInitStatus & AMC_CFG_SMBUS_PCIE_LINK_INITIALISED ) )
+    {
+        if( OK == ucEnableSMBusPcieLink() )
+        {
+            PLL_LOG( FAL_PROFILE_NAME, "PCIe SMBus link enabled\n\r" );
+            *pullAmcInitStatus |= AMC_CFG_SMBUS_PCIE_LINK_INITIALISED;
+        }
+        else
+        {
+            PLL_WRN( FAL_PROFILE_NAME, "PCIe SMBus link not available (skipped)\n\r" );
+        }
+    }
+
+    /* Init the Muxed Device FAL (idempotent via MUXED_DEVICE_FAL_INITIALISED guard). */
+    if( 0 == ( *pullAmcInitStatus & AMC_CFG_MUXED_DEVICE_FAL_INITIALISED ) )
+    {
+        if( 0 != MAX_NUM_EXTERNAL_DEVICES_AVAILABLE )
+        {
+            if( FW_IF_ERRORS_NONE == ulFW_IF_MUXED_DEVICE_Init( &myQsfpIf ) )
+            {
+                PLL_DBG( FAL_PROFILE_NAME, "Muxed Device FAL initialised OK\r\n" );
+                *pullAmcInitStatus |= AMC_CFG_MUXED_DEVICE_FAL_INITIALISED;
+            }
+            else
+            {
+                PLL_ERR( FAL_PROFILE_NAME, "Error initialising Muxed Device FAL\r\n" );
+                iStatus = ERROR;
+            }
+        }
+        else
+        {
+            *pullAmcInitStatus |= AMC_CFG_MUXED_DEVICE_FAL_INITIALISED;
+        }
+    }
+
+    /* Muxed Device Create (idempotent via MUXED_DEVICE_FAL_CREATED guard). */
+    if( ( AMC_CFG_MUXED_DEVICE_FAL_INITIALISED == ( *pullAmcInitStatus & AMC_CFG_MUXED_DEVICE_FAL_INITIALISED ) ) &&
+        ( 0 == ( *pullAmcInitStatus & AMC_CFG_MUXED_DEVICE_FAL_CREATED ) ) )
+    {
+        if( 0 != MAX_NUM_EXTERNAL_DEVICES_AVAILABLE )
+        {
+            if( FW_IF_ERRORS_NONE != ulFW_IF_MUXED_DEVICE_Create( &xQsfpIf1, &xQsfpCfg1 ) )
+            {
+                PLL_ERR( FAL_PROFILE_NAME, "Error creating QSFP FAL handle (1)\r\n" );
+                iMuxedDeviceStatus = ERROR;
+            }
+            if( FW_IF_ERRORS_NONE != ulFW_IF_MUXED_DEVICE_Create( &xQsfpIf2, &xQsfpCfg2 ) )
+            {
+                PLL_ERR( FAL_PROFILE_NAME, "Error creating QSFP FAL handle (2)\r\n" );
+                iMuxedDeviceStatus = ERROR;
+            }
+            if( FW_IF_ERRORS_NONE != ulFW_IF_MUXED_DEVICE_Create( &xQsfpIf3, &xQsfpCfg3 ) )
+            {
+                PLL_ERR( FAL_PROFILE_NAME, "Error creating QSFP FAL handle (3)\r\n" );
+                iMuxedDeviceStatus = ERROR;
+            }
+            if( FW_IF_ERRORS_NONE != ulFW_IF_MUXED_DEVICE_Create( &xQsfpIf4, &xQsfpCfg4 ) )
+            {
+                PLL_ERR( FAL_PROFILE_NAME, "Error creating QSFP FAL handle (4)\r\n" );
+                iMuxedDeviceStatus = ERROR;
+            }
+            if( FW_IF_ERRORS_NONE != ulFW_IF_MUXED_DEVICE_Create( &xDimmIf, &xDimmCfg ) )
+            {
+                PLL_ERR( FAL_PROFILE_NAME, "Error creating DIMM FAL handle\r\n" );
+                iMuxedDeviceStatus = ERROR;
+            }
+            if( OK == iMuxedDeviceStatus )
+            {
+                *pullAmcInitStatus |= AMC_CFG_MUXED_DEVICE_FAL_CREATED;
+            }
+            else
+            {
+                iStatus = ERROR;
+            }
+        }
+        else
+        {
+            *pullAmcInitStatus |= AMC_CFG_MUXED_DEVICE_FAL_CREATED;
+        }
+    }
+
+    return iStatus;
+}
+
 /**
  * @brief   Initialise FAL layer
  */
 int iFAL_Initialise( uint64_t *pullAmcInitStatus )
 {
     int     iStatus                         = OK;
-    int     iMuxedDeviceStatus              = OK;
     uint8_t ucUuidSize                      = 0;
     uint8_t pucUuid[ FW_IF_SMBUS_UDID_LEN ] =
     {
@@ -392,41 +492,10 @@ int iFAL_Initialise( uint64_t *pullAmcInitStatus )
 
     if( NULL != pullAmcInitStatus )
     {
-        if( AMC_CFG_I2C_INITIALISED == ( *pullAmcInitStatus & AMC_CFG_I2C_INITIALISED ) )
+        /* I2C-dependent FAL bits (deferred-init safe, see iFAL_InitI2CDependent). */
+        if( ERROR == iFAL_InitI2CDependent( pullAmcInitStatus ) )
         {
-            /* Enable SMBus PCIe link */
-            if( OK == ucEnableSMBusPcieLink() )
-            {
-                PLL_LOG( FAL_PROFILE_NAME, "PCIe SMBus link enabled\n\r" );
-                *pullAmcInitStatus |= AMC_CFG_SMBUS_PCIE_LINK_INITIALISED;
-            }
-            else
-            {
-                PLL_ERR( FAL_PROFILE_NAME, "Error enabling PCIe SMBus link \n\r" );
-                iStatus = ERROR;
-            }
-        }
-
-        /* Init the Muxed Device FAL */
-        if( AMC_CFG_I2C_INITIALISED == ( *pullAmcInitStatus & AMC_CFG_I2C_INITIALISED ) )
-        {
-            if( 0 != MAX_NUM_EXTERNAL_DEVICES_AVAILABLE )
-            {
-                if( FW_IF_ERRORS_NONE == ulFW_IF_MUXED_DEVICE_Init( &myQsfpIf ) )
-                {
-                    PLL_DBG( FAL_PROFILE_NAME, "Muxed Device FAL initialised OK\r\n" );
-                    *pullAmcInitStatus |= AMC_CFG_MUXED_DEVICE_FAL_INITIALISED;
-                }
-                else
-                {
-                    PLL_ERR( FAL_PROFILE_NAME, "Error initialising Muxed Device FAL\r\n" );
-                    iStatus = ERROR;
-                }
-            }
-            else
-            {
-                *pullAmcInitStatus |= AMC_CFG_MUXED_DEVICE_FAL_INITIALISED;
-            }
+            iStatus = ERROR;
         }
 
         /* Init the GCQ FAL */
@@ -471,75 +540,7 @@ int iFAL_Initialise( uint64_t *pullAmcInitStatus )
             iStatus = ERROR;
         }
 
-        if( AMC_CFG_MUXED_DEVICE_FAL_INITIALISED == ( *pullAmcInitStatus & AMC_CFG_MUXED_DEVICE_FAL_INITIALISED ) )
-        {
-            if( 0 != MAX_NUM_EXTERNAL_DEVICES_AVAILABLE )
-            {
-                if( FW_IF_ERRORS_NONE == ulFW_IF_MUXED_DEVICE_Create( &xQsfpIf1, &xQsfpCfg1 ) )
-                {
-                    PLL_DBG( FAL_PROFILE_NAME, "ulFW_IF_MUXED_DEVICE_Create created OK\r\n" );
-                }
-                else
-                {
-                    PLL_ERR( FAL_PROFILE_NAME, "Error creating QSFP FAL handle\r\n" );
-                    iStatus            = ERROR;
-                    iMuxedDeviceStatus = ERROR;
-                }
-
-                if( FW_IF_ERRORS_NONE == ulFW_IF_MUXED_DEVICE_Create( &xQsfpIf2, &xQsfpCfg2 ) )
-                {
-                    PLL_DBG( FAL_PROFILE_NAME, "ulFW_IF_MUXED_DEVICE_Create created OK\r\n" );
-                }
-                else
-                {
-                    PLL_ERR( FAL_PROFILE_NAME, "Error creating QSFP FAL handle\r\n" );
-                    iStatus            = ERROR;
-                    iMuxedDeviceStatus = ERROR;
-                }
-
-                if( FW_IF_ERRORS_NONE == ulFW_IF_MUXED_DEVICE_Create( &xQsfpIf3, &xQsfpCfg3 ) )
-                {
-                    PLL_DBG( FAL_PROFILE_NAME, "ulFW_IF_MUXED_DEVICE_Create created OK\r\n" );
-                }
-                else
-                {
-                    PLL_ERR( FAL_PROFILE_NAME, "Error creating QSFP FAL handle\r\n" );
-                    iStatus            = ERROR;
-                    iMuxedDeviceStatus = ERROR;
-                }
-
-                if( FW_IF_ERRORS_NONE == ulFW_IF_MUXED_DEVICE_Create( &xQsfpIf4, &xQsfpCfg4 ) )
-                {
-                    PLL_DBG( FAL_PROFILE_NAME, "ulFW_IF_MUXED_DEVICE_Create created OK\r\n" );
-                }
-                else
-                {
-                    PLL_ERR( FAL_PROFILE_NAME, "Error creating QSFP FAL handle\r\n" );
-                    iStatus            = ERROR;
-                    iMuxedDeviceStatus = ERROR;
-                }
-
-                if( FW_IF_ERRORS_NONE == ulFW_IF_MUXED_DEVICE_Create( &xDimmIf, &xDimmCfg ) )
-                {
-                    PLL_DBG( FAL_PROFILE_NAME, "ulFW_IF_MUXED_DEVICE_Create created OK\r\n" );
-                }
-                else
-                {
-                    PLL_ERR( FAL_PROFILE_NAME, "Error creating DIMM FAL handle\r\n" );
-                    iStatus            = ERROR;
-                    iMuxedDeviceStatus = ERROR;
-                }
-
-                if( OK == iMuxedDeviceStatus )
-                {
-                    *pullAmcInitStatus |= AMC_CFG_MUXED_DEVICE_FAL_CREATED;
-                }
-            }
-            else
-            {
-                *pullAmcInitStatus |= AMC_CFG_MUXED_DEVICE_FAL_CREATED;
-            }
-        }
+        /* Muxed Device Create is handled by iFAL_InitI2CDependent above. */
 
         /* Create instance of the GCQ based on the global configuration */
         if( AMC_CFG_GCQ_FAL_INITIALISED == ( *pullAmcInitStatus & AMC_CFG_GCQ_FAL_INITIALISED ) )

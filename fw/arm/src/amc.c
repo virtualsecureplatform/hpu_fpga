@@ -126,6 +126,7 @@ typedef struct {
 
 void *xMhdmaCommandMbox = NULL;
 void *xMhdmaWorkerTask = NULL;
+void *xDeviceDriverInitTask = NULL;
 
 /******************************************************************************/
 /* EVL Callback Declarations                                                  */
@@ -193,6 +194,12 @@ static int iInitProxies( void );
  *
  */
 static int iInitApp( void );
+
+/**
+ * @brief   OR bits into the AMC status word at HAL_AMC_STATUS_OFFSET.
+ *          Driver reads this word to discover firmware init progress.
+ */
+static void vAmcStatusOr( uint32_t ulBits );
 
 /**
  * @brief   The main task that init the FAL & proxy drivers
@@ -626,6 +633,41 @@ void vMhdmaWorkerTask(void *pvParameters) {
   }
 }
 
+static void vAmcStatusOr( uint32_t ulBits )
+{
+    volatile uint32_t *pulStatus =
+        ( volatile uint32_t* )( HAL_RPU_SHARED_MEMORY_BASE_ADDR + HAL_AMC_STATUS_OFFSET );
+    *pulStatus |= ulBits;
+    HAL_FLUSH_CACHE_DATA( ( uintptr_t )pulStatus, sizeof( uint32_t ) );
+}
+
+/*
+ * Device driver init runs on its own FreeRTOS task so that I2C/EEPROM busy-waits on broken boards (~25s) don't stall the main task.
+ * main task can enter its IOp-polling loop immediately. Time-slicing under the FreeRTOS tick lets both run concurrently.
+ */
+static void vDeviceDriverInitTaskFn( void *pvParameters )
+{
+    ( void )pvParameters;
+    ( void )iInitDeviceDrivers();
+    /* iInitDeviceDrivers sets EEPROM_OK/FAILED via vAmcStatusOr internally. */
+
+    /*
+     * Now I2C/EEPROM may be up. retry the init blocks that depend on them.
+     * Each block guards on its _INITIALISED flag, so already-initialised proxies/apps no-op and the I2C-dependent ones (AXC/ASC/BMC/ASDM/OOB)
+     * start now.
+     * On broken-EEPROM boards their prereqs stay unmet and they still skip cleanly.
+     */
+    ( void )iFAL_InitI2CDependent( &ullAmcInitStatus );
+    ( void )iInitProxies();
+    ( void )iInitApp();
+
+    PLL_INF( AMC_NAME, "Deferred I2C-dependent init pass complete\r\n" );
+
+    FOREVER {
+        iOSAL_Task_SleepMs( 60000 );
+    }
+}
+
 /*
  * @brief   The main task
  */
@@ -642,13 +684,11 @@ static void vTaskFuncMain( void )
         PLL_LOG( AMC_NAME, "Core Libs initialisation ERROR\t\n" );
     }
 
-    if( OK == iInitDeviceDrivers() ) {
-        PLL_LOG( AMC_NAME, "Device drivers Initialised OK\r\n" );
-        iStatus = OK;
-    } else {
-        PLL_LOG( AMC_NAME, "Device drivers Initialisation ERROR\r\n" );
-    }
-
+    /*
+     * Bring up FAL/Proxies/Apps first.
+     * iInitDeviceDrivers (I2C+EEPROM+SysMon) is deferred to its own task below.
+     * FAL's I2C-dependent sections gate on AMC_CFG_I2C_INITIALISED and skip cleanly while I2C is not yet up.
+     */
     if( OK == iFAL_Initialise( &ullAmcInitStatus ) ) {
         PLL_LOG( AMC_NAME, "FAL Initialised OK\r\n" );
     } else {
@@ -667,6 +707,21 @@ static void vTaskFuncMain( void )
     } else {
         PLL_LOG( AMC_NAME, "Apps Initialisation ERROR\r\n" );
         iStatus = ERROR;
+    }
+
+    /*
+     * Defer device driver init (I2C/EEPROM/SysMon) so it can't block the main task.
+     * ASC/AXC/BMC/ASDM stay dormant via their prereqs until the* task makes I2C/EEPROM available, or never on broken-EEPROM boards.
+     */
+    if( OSAL_ERRORS_NONE != iOSAL_Task_Create( &xDeviceDriverInitTask,
+                                               vDeviceDriverInitTaskFn,
+                                               4096,
+                                               NULL,
+                                               AMC_TASK_PRIO_DEFAULT,
+                                               "DevDrvInit" ) ) {
+        PLL_ERR( AMC_NAME, "Failed to spawn device-driver init task\r\n" );
+    } else {
+        PLL_INF( AMC_NAME, "Device-driver init deferred to background task\r\n" );
     }
 
     if( ERROR == iStatus ) {
@@ -819,6 +874,8 @@ static void vTaskFuncMain( void )
     DOpu_t   dop;
     bool stop_consuming_iop = false;
     uint16_t loop_cnt = 0;
+
+    vAmcStatusOr( HAL_AMC_STATUS_MAIN_RUNNING );
 
     FOREVER {
         // ----------------------------------------------------------------------------------------
@@ -1322,6 +1379,7 @@ static int iInitDeviceDrivers( void )
     {
         PLL_INF( AMC_NAME, "I2C driver Initialised OK\r\n" );
         ullAmcInitStatus |= AMC_CFG_I2C_INITIALISED;
+        vAmcStatusOr( HAL_AMC_STATUS_I2C_OK );
     }
     else
     {
@@ -1335,6 +1393,7 @@ static int iInitDeviceDrivers( void )
         {
             PLL_INF( AMC_NAME, "iEEPROM_Initialised OK\r\n" );
             ullAmcInitStatus |= AMC_CFG_EEPROM_INITIALISED;
+            vAmcStatusOr( HAL_AMC_STATUS_EEPROM_OK );
 
             if( ERROR == iEEPROM_DisplayEepromValues( ) )
             {
@@ -1343,7 +1402,8 @@ static int iInitDeviceDrivers( void )
         }
         else
         {
-            PLL_ERR( AMC_NAME, "iEEPROM_Initialised FAILED\r\n" );
+            PLL_WRN( AMC_NAME, "iEEPROM_Initialised FAILED (skipped)\r\n" );
+            vAmcStatusOr( HAL_AMC_STATUS_EEPROM_FAILED );
         }
     }
 
@@ -1368,7 +1428,8 @@ static int iInitProxies( void )
 {
     int iStatus = OK;
 
-    if( AMC_CFG_APC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_APC_PREREQUISITES ) )
+    if( ( AMC_CFG_APC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_APC_PREREQUISITES ) ) &&
+        !( ullAmcInitStatus & AMC_CFG_APC_INITIALISED ) )
     {
         if( OK == iAPC_Initialise( AMC_CFG_UNIQUE_ID_APC,
                                    pxOspiIf,
@@ -1395,7 +1456,8 @@ static int iInitProxies( void )
 
     if( 0 != MAX_NUM_EXTERNAL_DEVICES_AVAILABLE )
     {
-        if( AMC_CFG_AXC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_AXC_PREREQUISITES ) )
+        if( ( AMC_CFG_AXC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_AXC_PREREQUISITES ) ) &&
+            !( ullAmcInitStatus & AMC_CFG_AXC_INITIALISED ) )
         {
             if( OK == iAXC_Initialise( AMC_CFG_UNIQUE_ID_AXC, AMC_TASK_PRIO_DEFAULT, AMC_TASK_DEFAULT_STACK ) )
             {
@@ -1434,8 +1496,10 @@ static int iInitProxies( void )
         ullAmcInitStatus |= AMC_CFG_AXC_INITIALISED;
     }
 
-    if( AMC_CFG_ASC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASC_PREREQUISITES ) )
+    if( ( AMC_CFG_ASC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASC_PREREQUISITES ) ) &&
+        !( ullAmcInitStatus & AMC_CFG_ASC_INITIALISED ) )
     {
+        vAmcStatusOr( HAL_AMC_STATUS_SENSORS_OK );
         if( OK == iASC_Initialise( AMC_CFG_UNIQUE_ID_ASC,
                                    AMC_TASK_PRIO_DEFAULT,
                                    AMC_TASK_DEFAULT_STACK,
@@ -1452,7 +1516,8 @@ static int iInitProxies( void )
         }
     }
 
-    if( AMC_CFG_AMI_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_AMI_PREREQUISITES ) )
+    if( ( AMC_CFG_AMI_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_AMI_PREREQUISITES ) ) &&
+        !( ullAmcInitStatus & AMC_CFG_AMI_INITIALISED ) )
     {
         if( OK == iAMI_Initialise( AMC_CFG_UNIQUE_ID_AMI,
                                    &xGcqIf,
@@ -1509,7 +1574,8 @@ static int iInitProxies( void )
                 /* Use the default (all 0s) UUID */
             }
 
-            if( AMC_CFG_BMC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_BMC_PREREQUISITES ) )
+            if( ( AMC_CFG_BMC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_BMC_PREREQUISITES ) ) &&
+                !( ullAmcInitStatus & AMC_CFG_BMC_INITIALISED ) )
             {
                 if( OK == iBMC_Initialise( AMC_CFG_UNIQUE_ID_BMC,
                                            pxSMBusIf,
@@ -1556,7 +1622,8 @@ static int iInitApp( void )
 {
     int iStatus = OK;
 
-    if( AMC_CFG_ASDM_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASDM_PREREQUISITES ) )
+    if( ( AMC_CFG_ASDM_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASDM_PREREQUISITES ) ) &&
+        !( ullAmcInitStatus & AMC_CFG_ASDM_INITIALISED ) )
     {
         if( OK != iASDM_Initialise( PROFILE_SENSORS_NUM_SENSORS ) )
         {
@@ -1569,7 +1636,8 @@ static int iInitApp( void )
         }
     }
 
-    if( AMC_CFG_IN_BAND_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_IN_BAND_PREREQUISITES ) )
+    if( ( AMC_CFG_IN_BAND_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_IN_BAND_PREREQUISITES ) ) &&
+        !( ullAmcInitStatus & AMC_CFG_IN_BAND_INITIALISED ) )
     {
         if( OK != iIN_BAND_TELEMETRY_Initialise( HAL_RPU_SHARED_MEMORY_BASE_ADDR ) )
         {
@@ -1583,7 +1651,8 @@ static int iInitApp( void )
         }
     }
 
-    if( AMC_CFG_OUT_OF_BAND_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_OUT_OF_BAND_PREREQUISITES ) )
+    if( ( AMC_CFG_OUT_OF_BAND_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_OUT_OF_BAND_PREREQUISITES ) ) &&
+        !( ullAmcInitStatus & AMC_CFG_OUT_OF_BAND_INITIALISED ) )
     {
         if( OK != iOUT_OF_BAND_TELEMETRY_Initialise() )
         {
@@ -1597,14 +1666,25 @@ static int iInitApp( void )
         }
     }
 
-    if( OK != iBIM_Initialise( PROFILE_BIM_MODULE_DATA ) )
+    /*
+     * BIM has no _INITIALISED flag use a local static guard so iInitApp
+     * stays idempotent when re-entered from the deferred-init task.
+     */
     {
-        PLL_ERR( AMC_NAME, "Built in Monitoring Initialisation ERROR\r\n" );
-        iStatus = ERROR;
-    }
-    else
-    {
-        PLL_LOG( AMC_NAME, "Built in Monitoring (BIM) application started\r\n" );
+        static bool bBimInitialised = false;
+        if( !bBimInitialised )
+        {
+            if( OK != iBIM_Initialise( PROFILE_BIM_MODULE_DATA ) )
+            {
+                PLL_ERR( AMC_NAME, "Built in Monitoring Initialisation ERROR\r\n" );
+                iStatus = ERROR;
+            }
+            else
+            {
+                bBimInitialised = true;
+                PLL_LOG( AMC_NAME, "Built in Monitoring (BIM) application started\r\n" );
+            }
+        }
     }
 
     return iStatus;

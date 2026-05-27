@@ -48,6 +48,19 @@
 #define HAL_PARTITION_TABLE_MAGIC_NO            ( 0x564D5230 )
 #define HAL_ENABLE_AMI_COMMS                    ( 0x1 )
 #define HAL_RPU_RING_BUFFER_LEN                 ( 0x1000 )
+
+/*
+ * AMC status word flags (written to the partition-table status field).
+ * The driver polls this word during probe and exposes it in sysfs.
+ * Bit 0 (COMMS_READY) preserves legacy HAL_ENABLE_AMI_COMMS semantics.
+ */
+#define HAL_AMC_STATUS_OFFSET                   ( HAL_PARTITION_TABLE_SIZE + HAL_RPU_RING_BUFFER_LEN )
+#define HAL_AMC_STATUS_COMMS_READY              ( 0x01 )
+#define HAL_AMC_STATUS_I2C_OK                   ( 0x02 )
+#define HAL_AMC_STATUS_EEPROM_OK                ( 0x04 )
+#define HAL_AMC_STATUS_EEPROM_FAILED            ( 0x08 )
+#define HAL_AMC_STATUS_SENSORS_OK               ( 0x10 )
+#define HAL_AMC_STATUS_MAIN_RUNNING             ( 0x20 )
 #define HAL_RPU_SHARED_MEMORY_BASE_ADDR         ( 0x38000000 )
 #define HAL_RPU_SHARED_MEMORY_END_ADDR          ( 0x3FFFF000 )
 #define HAL_RPU_SHARED_MEMORY_SIZE              ( HAL_RPU_SHARED_MEMORY_END_ADDR - HAL_RPU_SHARED_MEMORY_BASE_ADDR )

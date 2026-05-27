@@ -57,20 +57,19 @@
                                                   AMC_CFG_MUXED_DEVICE_FAL_INITIALISED ) )
 
 #define AMC_CFG_ASC_PREREQUISITES ( ( uint64_t )( AMC_CFG_I2C_INITIALISED |              \
+                                                  AMC_CFG_EEPROM_INITIALISED |           \
                                                   AMC_CFG_MUXED_DEVICE_FAL_INITIALISED | \
                                                   AMC_CFG_AXC_INITIALISED ) )
 
 #define AMC_CFG_AMI_PREREQUISITES ( ( uint64_t )( AMC_CFG_GCQ_FAL_INITIALISED ) )
 
-#define AMC_CFG_BMC_PREREQUISITES ( ( uint64_t )( AMC_CFG_SMBUS_PCIE_LINK_INITIALISED | \
-                                                  AMC_CFG_SMBUS_FAL_INITIALISED ) )
+#define AMC_CFG_BMC_PREREQUISITES ( ( uint64_t )( AMC_CFG_SMBUS_FAL_INITIALISED ) )
 
 #define AMC_CFG_ASDM_PREREQUISITES ( ( uint64_t )( AMC_CFG_APC_INITIALISED | \
                                                    AMC_CFG_ASC_INITIALISED | \
                                                    AMC_CFG_EEPROM_INITIALISED ) )
 
-#define AMC_CFG_IN_BAND_PREREQUISITES ( ( uint64_t )( AMC_CFG_AMI_INITIALISED | \
-                                                      AMC_CFG_ASDM_INITIALISED ) )
+#define AMC_CFG_IN_BAND_PREREQUISITES ( ( uint64_t )( AMC_CFG_AMI_INITIALISED ) )
 
 #define AMC_CFG_OUT_OF_BAND_PREREQUISITES ( ( uint64_t )( AMC_CFG_ASC_INITIALISED | \
                                                           AMC_CFG_BMC_INITIALISED ) )
