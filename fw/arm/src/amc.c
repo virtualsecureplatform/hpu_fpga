@@ -13,6 +13,7 @@
 /******************************************************************************/
 
 #include "FreeRTOS.h"
+#include "task.h"        /* taskENTER_CRITICAL / taskEXIT_CRITICAL */
 /* common includes */
 #include "standard.h"
 #include "util.h"
@@ -283,7 +284,7 @@ AXC_PROXY_DRIVER_EXTERNAL_DEVICE_CONFIG xDimmDevice =
     &xDimmIf, 4
 };
 
-uint64_t ullAmcInitStatus = 0;
+volatile uint64_t ullAmcInitStatus = 0; // used in both main task and vDeviceDriverInitTaskFn
 uint64_t isc_intr_global_cnt = 0;
 uint64_t debug_intr_global_cnt = 0;
 uint64_t intr_notify_cnt = 0;
@@ -635,9 +636,12 @@ void vMhdmaWorkerTask(void *pvParameters) {
 
 static void vAmcStatusOr( uint32_t ulBits )
 {
-    volatile uint32_t *pulStatus =
-        ( volatile uint32_t* )( HAL_RPU_SHARED_MEMORY_BASE_ADDR + HAL_AMC_STATUS_OFFSET );
+    volatile uint32_t *pulStatus = ( volatile uint32_t* )( HAL_RPU_SHARED_MEMORY_BASE_ADDR + HAL_AMC_STATUS_OFFSET );
+    // Even though very unlikely, an issue could occur during boot between main task (before its FOREVER loop) and
+    // the deferred init function vDeviceDriverInitTaskFn.
+    taskENTER_CRITICAL();
     *pulStatus |= ulBits;
+    taskEXIT_CRITICAL();
     HAL_FLUSH_CACHE_DATA( ( uintptr_t )pulStatus, sizeof( uint32_t ) );
 }
 
@@ -1499,7 +1503,6 @@ static int iInitProxies( void )
     if( ( AMC_CFG_ASC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASC_PREREQUISITES ) ) &&
         !( ullAmcInitStatus & AMC_CFG_ASC_INITIALISED ) )
     {
-        vAmcStatusOr( HAL_AMC_STATUS_SENSORS_OK );
         if( OK == iASC_Initialise( AMC_CFG_UNIQUE_ID_ASC,
                                    AMC_TASK_PRIO_DEFAULT,
                                    AMC_TASK_DEFAULT_STACK,
@@ -1508,6 +1511,7 @@ static int iInitProxies( void )
         {
             PLL_INF( AMC_NAME, "ASC Proxy Driver initialised\r\n" );
             ullAmcInitStatus |= AMC_CFG_ASC_INITIALISED;
+            vAmcStatusOr( HAL_AMC_STATUS_SENSORS_OK );
         }
         else
         {
@@ -1671,7 +1675,8 @@ static int iInitApp( void )
      * stays idempotent when re-entered from the deferred-init task.
      */
     {
-        static bool bBimInitialised = false;
+        // Read/written by both main task and vDeviceDriverInitTaskFn re-entry.
+        static volatile bool bBimInitialised = false;
         if( !bBimInitialised )
         {
             if( OK != iBIM_Initialise( PROFILE_BIM_MODULE_DATA ) )
