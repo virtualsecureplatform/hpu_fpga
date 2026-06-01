@@ -55,7 +55,7 @@
  * Bit 0 (COMMS_READY) preserves legacy HAL_ENABLE_AMI_COMMS semantics.
  */
 #define HAL_AMC_STATUS_OFFSET                   ( HAL_PARTITION_TABLE_SIZE + HAL_RPU_RING_BUFFER_LEN )
-#define HAL_AMC_STATUS_COMMS_READY              ( 0x01 )
+#define HAL_AMC_STATUS_COMMS_READY              ( 0x01 ) /* AMI comms channel valid; set implicitly by the partition-table status write at boot (legacy HAL_ENABLE_AMI_COMMS) */
 #define HAL_AMC_STATUS_I2C_OK                   ( 0x02 )
 #define HAL_AMC_STATUS_EEPROM_OK                ( 0x04 )
 #define HAL_AMC_STATUS_EEPROM_FAILED            ( 0x08 )

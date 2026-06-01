@@ -1389,8 +1389,7 @@ static int iInitProxies( void )
 {
     int iStatus = OK;
 
-    if( ( AMC_CFG_APC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_APC_PREREQUISITES ) ) &&
-        !( ullAmcInitStatus & AMC_CFG_APC_INITIALISED ) )
+    if( AMC_CFG_APC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_APC_PREREQUISITES ) )
     {
         if( OK == iAPC_Initialise( AMC_CFG_UNIQUE_ID_APC,
                                    pxOspiIf,
@@ -1417,8 +1416,7 @@ static int iInitProxies( void )
 
     if( 0 != MAX_NUM_EXTERNAL_DEVICES_AVAILABLE )
     {
-        if( ( AMC_CFG_AXC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_AXC_PREREQUISITES ) ) &&
-            !( ullAmcInitStatus & AMC_CFG_AXC_INITIALISED ) )
+        if( AMC_CFG_AXC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_AXC_PREREQUISITES ) )
         {
             if( OK == iAXC_Initialise( AMC_CFG_UNIQUE_ID_AXC, AMC_TASK_PRIO_DEFAULT, AMC_TASK_DEFAULT_STACK ) )
             {
@@ -1457,8 +1455,7 @@ static int iInitProxies( void )
         ullAmcInitStatus |= AMC_CFG_AXC_INITIALISED;
     }
 
-    if( ( AMC_CFG_ASC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASC_PREREQUISITES ) ) &&
-        !( ullAmcInitStatus & AMC_CFG_ASC_INITIALISED ) )
+    if( AMC_CFG_ASC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASC_PREREQUISITES ) )
     {
         if( OK == iASC_Initialise( AMC_CFG_UNIQUE_ID_ASC,
                                    AMC_TASK_PRIO_DEFAULT,
@@ -1477,8 +1474,7 @@ static int iInitProxies( void )
         }
     }
 
-    if( ( AMC_CFG_AMI_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_AMI_PREREQUISITES ) ) &&
-        !( ullAmcInitStatus & AMC_CFG_AMI_INITIALISED ) )
+    if( AMC_CFG_AMI_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_AMI_PREREQUISITES ) )
     {
         if( OK == iAMI_Initialise( AMC_CFG_UNIQUE_ID_AMI,
                                    &xGcqIf,
@@ -1535,8 +1531,7 @@ static int iInitProxies( void )
                 /* Use the default (all 0s) UUID */
             }
 
-            if( ( AMC_CFG_BMC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_BMC_PREREQUISITES ) ) &&
-                !( ullAmcInitStatus & AMC_CFG_BMC_INITIALISED ) )
+            if( AMC_CFG_BMC_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_BMC_PREREQUISITES ) )
             {
                 if( OK == iBMC_Initialise( AMC_CFG_UNIQUE_ID_BMC,
                                            pxSMBusIf,
@@ -1583,8 +1578,7 @@ static int iInitApp( void )
 {
     int iStatus = OK;
 
-    if( ( AMC_CFG_ASDM_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASDM_PREREQUISITES ) ) &&
-        !( ullAmcInitStatus & AMC_CFG_ASDM_INITIALISED ) )
+    if( AMC_CFG_ASDM_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_ASDM_PREREQUISITES ) )
     {
         if( OK != iASDM_Initialise( PROFILE_SENSORS_NUM_SENSORS ) )
         {
@@ -1597,8 +1591,7 @@ static int iInitApp( void )
         }
     }
 
-    if( ( AMC_CFG_IN_BAND_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_IN_BAND_PREREQUISITES ) ) &&
-        !( ullAmcInitStatus & AMC_CFG_IN_BAND_INITIALISED ) )
+    if( AMC_CFG_IN_BAND_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_IN_BAND_PREREQUISITES ) )
     {
         if( OK != iIN_BAND_TELEMETRY_Initialise( HAL_RPU_SHARED_MEMORY_BASE_ADDR ) )
         {
@@ -1612,8 +1605,7 @@ static int iInitApp( void )
         }
     }
 
-    if( ( AMC_CFG_OUT_OF_BAND_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_OUT_OF_BAND_PREREQUISITES ) ) &&
-        !( ullAmcInitStatus & AMC_CFG_OUT_OF_BAND_INITIALISED ) )
+    if( AMC_CFG_OUT_OF_BAND_PREREQUISITES == ( ullAmcInitStatus & AMC_CFG_OUT_OF_BAND_PREREQUISITES ) )
     {
         if( OK != iOUT_OF_BAND_TELEMETRY_Initialise() )
         {
