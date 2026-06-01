@@ -96,7 +96,8 @@
 
 
 #define HAL_I2C_DEFAULT_SCLK_RATE ( 33333333 )
-#define HAL_I2C_RETRY_COUNT       ( 5 )
+/* Single attempt per I2C transfer (no retries) */
+#define HAL_I2C_RETRY_COUNT       ( 1 )
 
 /* Definitions OSPI */
 #define HAL_OSPI_0_DEVICE_ID              ( XPAR_XOSPIPSV_0_DEVICE_ID )

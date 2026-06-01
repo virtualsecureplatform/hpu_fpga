@@ -13,7 +13,6 @@
 /******************************************************************************/
 
 #include "FreeRTOS.h"
-#include "task.h"        /* taskENTER_CRITICAL / taskEXIT_CRITICAL */
 /* common includes */
 #include "standard.h"
 #include "util.h"
@@ -127,7 +126,6 @@ typedef struct {
 
 void *xMhdmaCommandMbox = NULL;
 void *xMhdmaWorkerTask = NULL;
-void *xDeviceDriverInitTask = NULL;
 
 /******************************************************************************/
 /* EVL Callback Declarations                                                  */
@@ -284,7 +282,7 @@ AXC_PROXY_DRIVER_EXTERNAL_DEVICE_CONFIG xDimmDevice =
     &xDimmIf, 4
 };
 
-volatile uint64_t ullAmcInitStatus = 0; // used in both main task and vDeviceDriverInitTaskFn
+uint64_t ullAmcInitStatus = 0;
 uint64_t isc_intr_global_cnt = 0;
 uint64_t debug_intr_global_cnt = 0;
 uint64_t intr_notify_cnt = 0;
@@ -637,39 +635,8 @@ void vMhdmaWorkerTask(void *pvParameters) {
 static void vAmcStatusOr( uint32_t ulBits )
 {
     volatile uint32_t *pulStatus = ( volatile uint32_t* )( HAL_RPU_SHARED_MEMORY_BASE_ADDR + HAL_AMC_STATUS_OFFSET );
-    // Even though very unlikely, an issue could occur during boot between main task (before its FOREVER loop) and
-    // the deferred init function vDeviceDriverInitTaskFn.
-    taskENTER_CRITICAL();
     *pulStatus |= ulBits;
-    taskEXIT_CRITICAL();
     HAL_FLUSH_CACHE_DATA( ( uintptr_t )pulStatus, sizeof( uint32_t ) );
-}
-
-/*
- * Device driver init runs on its own FreeRTOS task so that I2C/EEPROM busy-waits on broken boards (~25s) don't stall the main task.
- * main task can enter its IOp-polling loop immediately. Time-slicing under the FreeRTOS tick lets both run concurrently.
- */
-static void vDeviceDriverInitTaskFn( void *pvParameters )
-{
-    ( void )pvParameters;
-    ( void )iInitDeviceDrivers();
-    /* iInitDeviceDrivers sets EEPROM_OK/FAILED via vAmcStatusOr internally. */
-
-    /*
-     * Now I2C/EEPROM may be up. retry the init blocks that depend on them.
-     * Each block guards on its _INITIALISED flag, so already-initialised proxies/apps no-op and the I2C-dependent ones (AXC/ASC/BMC/ASDM/OOB)
-     * start now.
-     * On broken-EEPROM boards their prereqs stay unmet and they still skip cleanly.
-     */
-    ( void )iFAL_InitI2CDependent( &ullAmcInitStatus );
-    ( void )iInitProxies();
-    ( void )iInitApp();
-
-    PLL_INF( AMC_NAME, "Deferred I2C-dependent init pass complete\r\n" );
-
-    FOREVER {
-        iOSAL_Task_SleepMs( 60000 );
-    }
 }
 
 /*
@@ -689,10 +656,15 @@ static void vTaskFuncMain( void )
     }
 
     /*
-     * Bring up FAL/Proxies/Apps first.
-     * iInitDeviceDrivers (I2C+EEPROM+SysMon) is deferred to its own task below.
-     * FAL's I2C-dependent sections gate on AMC_CFG_I2C_INITIALISED and skip cleanly while I2C is not yet up.
+     * Bring up device drivers (I2C + EEPROM + SysMon) first, then FAL/Proxies/Apps.
      */
+    if( OK == iInitDeviceDrivers() ) {
+        PLL_LOG( AMC_NAME, "Device drivers Initialised OK\r\n" );
+        iStatus = OK;
+    } else {
+        PLL_LOG( AMC_NAME, "Device drivers Initialisation ERROR\r\n" );
+    }
+
     if( OK == iFAL_Initialise( &ullAmcInitStatus ) ) {
         PLL_LOG( AMC_NAME, "FAL Initialised OK\r\n" );
     } else {
@@ -711,21 +683,6 @@ static void vTaskFuncMain( void )
     } else {
         PLL_LOG( AMC_NAME, "Apps Initialisation ERROR\r\n" );
         iStatus = ERROR;
-    }
-
-    /*
-     * Defer device driver init (I2C/EEPROM/SysMon) so it can't block the main task.
-     * ASC/AXC/BMC/ASDM stay dormant via their prereqs until the* task makes I2C/EEPROM available, or never on broken-EEPROM boards.
-     */
-    if( OSAL_ERRORS_NONE != iOSAL_Task_Create( &xDeviceDriverInitTask,
-                                               vDeviceDriverInitTaskFn,
-                                               4096,
-                                               NULL,
-                                               AMC_TASK_PRIO_DEFAULT,
-                                               "DevDrvInit" ) ) {
-        PLL_ERR( AMC_NAME, "Failed to spawn device-driver init task\r\n" );
-    } else {
-        PLL_INF( AMC_NAME, "Device-driver init deferred to background task\r\n" );
     }
 
     if( ERROR == iStatus ) {
@@ -1670,26 +1627,14 @@ static int iInitApp( void )
         }
     }
 
-    /*
-     * BIM has no _INITIALISED flag use a local static guard so iInitApp
-     * stays idempotent when re-entered from the deferred-init task.
-     */
+    if( OK != iBIM_Initialise( PROFILE_BIM_MODULE_DATA ) )
     {
-        // Read/written by both main task and vDeviceDriverInitTaskFn re-entry.
-        static volatile bool bBimInitialised = false;
-        if( !bBimInitialised )
-        {
-            if( OK != iBIM_Initialise( PROFILE_BIM_MODULE_DATA ) )
-            {
-                PLL_ERR( AMC_NAME, "Built in Monitoring Initialisation ERROR\r\n" );
-                iStatus = ERROR;
-            }
-            else
-            {
-                bBimInitialised = true;
-                PLL_LOG( AMC_NAME, "Built in Monitoring (BIM) application started\r\n" );
-            }
-        }
+        PLL_ERR( AMC_NAME, "Built in Monitoring Initialisation ERROR\r\n" );
+        iStatus = ERROR;
+    }
+    else
+    {
+        PLL_LOG( AMC_NAME, "Built in Monitoring (BIM) application started\r\n" );
     }
 
     return iStatus;

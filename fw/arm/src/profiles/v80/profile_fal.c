@@ -492,7 +492,7 @@ int iFAL_Initialise( uint64_t *pullAmcInitStatus )
 
     if( NULL != pullAmcInitStatus )
     {
-        /* I2C-dependent FAL bits (deferred-init safe, see iFAL_InitI2CDependent). */
+        /* I2C-dependent FAL bits (skips cleanly when I2C is not up). */
         if( ERROR == iFAL_InitI2CDependent( pullAmcInitStatus ) )
         {
             iStatus = ERROR;
