@@ -96,7 +96,7 @@
 
 
 #define HAL_I2C_DEFAULT_SCLK_RATE ( 33333333 )
-/* Per-transfer retry budget. i2C being unstable lowering this makes EEPROM_ERROR lagged where there is no issues */
+/* Per-transfer retry budget. i2C being unstable lowering this makes EEPROM_ERROR logged where there is no issues */
 #define HAL_I2C_RETRY_COUNT       ( 5 )
 
 /* Definitions OSPI */
