@@ -195,8 +195,11 @@ module tb_mhdma_decoder;
     .rx_tdata_out              (rx_tdata_out              ),
     .rx_tvalid_out             (rx_tvalid_out             ),
     //  Statistics
-    .stat                      (stat                      ),
-    .stat_rst                  (stat_rst                  ),
+    .stat               (stat                 ),
+    .stat_rst           (stat_rst             ),
+    // Decoded-header tap (packet-trace debug is a separate module - not exercised here)
+    .decoder_header_data (/* UNUSED */         ),
+    .decoder_header_valid(/* UNUSED */         ),
     // Error interface
     .decoder_error             (decoder_error             ),
     .rst_errors                (rst_errors                ),

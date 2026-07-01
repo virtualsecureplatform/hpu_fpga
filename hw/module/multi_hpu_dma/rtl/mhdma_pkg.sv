@@ -265,6 +265,14 @@ package mhdma_pkg;
   // =========================================================================================== //
   localparam int COUNTER_W = 32; // this is arbitrary
 
+  // FSM-state register widths.
+  localparam int FSM_FORMATTER_W = 3;
+  localparam int FSM_CEM_W       = 2;
+  localparam int FSM_NOTIFY_RX_W = 2;
+  localparam int FSM_BURST_W     = 2;
+  localparam int FSM_READ_REQ_W  = 2;
+  localparam int FSM_NOTIFY_W    = 2;
+
   typedef struct packed {
     logic [REG_DATA_W-1:0] cnt_notify;
     logic [REG_DATA_W-1:0] cnt_notify_ack;
@@ -283,9 +291,9 @@ package mhdma_pkg;
     logic [REG_DATA_W-1:0] t_hbm_write_latency;
     logic [REG_DATA_W-1:0] t_hbm_write_latency_max;
     logic [REG_DATA_W-1:0] t_hbm_write_latency_min;
-    logic [1:0]            fsm_notify;
-    logic [1:0]            fsm_read_req;
-    logic [1:0]            fsm_burst;
+    logic [FSM_NOTIFY_W-1:0]   fsm_notify;
+    logic [FSM_READ_REQ_W-1:0] fsm_read_req;
+    logic [FSM_BURST_W-1:0]    fsm_burst;
   } master_stat_t;
 
   typedef struct packed {
@@ -301,8 +309,8 @@ package mhdma_pkg;
     logic             [  REG_DATA_W-1:0] nb_read_to_hbm;
     logic [ETH_PC-1:0][  REG_DATA_W-1:0] nb_words_received_pc;
     logic [ETH_PC-1:0][  REG_DATA_W-1:0] t_rr_wait_words_pc;
-    logic [1:0]                          fsm_notify_rx;
-    logic [1:0]                          fsm_cem;
+    logic [FSM_NOTIFY_RX_W-1:0]          fsm_notify_rx;
+    logic [FSM_CEM_W-1:0]                fsm_cem;
     logic [ETH_PC-1:0][2*REG_DATA_W-1:0] rr_phy_addr;
   } slave_stat_t;
 
@@ -334,7 +342,7 @@ package mhdma_pkg;
     logic [REG_DATA_W-1:0] cnt_notify_sent;
     logic [REG_DATA_W-1:0] cnt_ce_sent;
     logic [REG_DATA_W-1:0] cnt_notify_ack_sent;
-    logic [2:0]            fsm_formatter;
+    logic [FSM_FORMATTER_W-1:0] fsm_formatter;
   } formatter_stat_t;
 
   typedef struct packed {
@@ -343,6 +351,17 @@ package mhdma_pkg;
     logic cnt_ce_sent;
     logic cnt_notify_ack_sent;
   } formatter_stat_rst_t;
+
+  // =========================================================================================== //
+  // Decoder trace
+  // =========================================================================================== //
+  localparam int TRACE_DEPTH = 64;
+
+  localparam int  TRACE_FSM_W = FSM_FORMATTER_W + FSM_CEM_W + FSM_NOTIFY_RX_W
+                              + FSM_BURST_W + FSM_READ_REQ_W + FSM_NOTIFY_W;
+
+  localparam int TRACE_AUX_W = TRACE_FSM_W + $bits(mhdma_error_t);
+  localparam int TRACE_AW    = $clog2(TRACE_DEPTH);
 
   // =========================================================================================== //
   // CDC structs (used in multi_hpu_dma top and mhdma_bridge)

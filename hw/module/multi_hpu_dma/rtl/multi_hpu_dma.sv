@@ -169,6 +169,17 @@ module multi_hpu_dma
   logic [REG_DATA_W-1:0] mhdma_errors_cfg_merged;
   mhdma_error_all_t      mhdma_error_all;
 
+  // Packet trace debug (clk_mhdma_cfg) ----------------------------------------------------------
+  logic                             trace_arm;     // trace_ctrl write strobe -> flush + re-arm
+  logic                             trace_rd_en;   // trace_data read strobe  -> pop one word
+  logic [REG_DATA_W-1:0]            trace_rd_data; // current 32-bit trace word from the bridge
+  logic                             trace_frozen;
+  logic [$clog2(TRACE_DEPTH)-1:0]   trace_wptr;
+  logic [REG_DATA_W-1:0]            trace_status;  // packed status returned when reading trace_ctrl
+
+  // trace_ctrl read layout: [0] frozen, [1 +: clog2(DEPTH)] write pointer, rest reserved
+  assign trace_status = {{(REG_DATA_W-1-$clog2(TRACE_DEPTH)){1'b0}}, trace_wptr, trace_frozen};
+
   // Transceivers ---------------------------------------------------------------------------------
   assign line_sel             = r_system_lane[1:0];
   assign gt_loopback          = r_system_lane[4:2];
@@ -404,7 +415,14 @@ module multi_hpu_dma
     // decoder dropped counter
     .r_mhdma_request_stat_nb_decoder_dropped              (/* UNUSED - register output, only _upd/_rd_en used */ ),
     .r_mhdma_request_stat_nb_decoder_dropped_upd          (stat_cfg.decoder.cnt_dropped                          ),
-    .r_mhdma_request_stat_nb_decoder_dropped_rd_en        (stat_rst_cfg.decoder.cnt_dropped                      )
+    .r_mhdma_request_stat_nb_decoder_dropped_rd_en        (stat_rst_cfg.decoder.cnt_dropped                      ),
+    // packet trace debug (trace_ctrl: read = status, write = re-arm strobe)
+    .r_mhdma_system_trace_ctrl                            (/* UNUSED - register output, only _upd/_wr_en used */ ),
+    .r_mhdma_system_trace_ctrl_upd                        (trace_status                                          ),
+    .r_mhdma_system_trace_ctrl_wr_en                      (trace_arm                                             ),
+    .r_mhdma_system_trace_data                            (/* UNUSED - register output, only _upd/_rd_en used */ ),
+    .r_mhdma_system_trace_data_upd                        (trace_rd_data                                         ),
+    .r_mhdma_system_trace_data_rd_en                      (trace_rd_en                                           )
   );
 
   // ============================================================================================ //
@@ -614,6 +632,12 @@ module multi_hpu_dma
     .clear_interrupt_rr             (clear_interrupt_rr                                           ),
     .interrupt_notify               (interrupt_notify                                             ),
     .interrupt_read_request         (interrupt_read_request                                       ),
+    // packet trace debug -------------------------------------------------------------------------
+    .trace_arm                      (trace_arm                                                    ),
+    .trace_rd_en                    (trace_rd_en                                                  ),
+    .trace_rd_data                  (trace_rd_data                                                ),
+    .trace_frozen                   (trace_frozen                                                 ),
+    .trace_wptr                     (trace_wptr                                                   ),
     // statistics ---------------------------------------------------------------------------------
     .stat_to_cfg                    (stat_mhdma                                                   ),
     .stat_rst                       (stat_rst_mhdma                                               ),

@@ -534,6 +534,12 @@ module tb_mhdma_errors;
     test_decoder_dropped();
 
     $display("\n==================================================================================================");
+    $display("  SCENARIO %0d: Packet trace - freeze on error, read twice, re-arm, re-trigger, read twice", scenario_id);
+    $display("==================================================================================================\n");
+
+    test_packet_trace();
+
+    $display("\n==================================================================================================");
     $display("  END of test : checking that none errors sticked & are reset");
     $display("==================================================================================================\n");
 
@@ -870,6 +876,125 @@ module tb_mhdma_errors;
         $display("%t > [ERROR] stat_nb_decoder_dropped = %0d, expected 2", $time, stat_dropped);
         error_unexpected = 1'b1;
       end
+
+      scenario_id = scenario_id + 1;
+    end
+  endtask
+
+  // Packet-trace debug scenario:
+  //   arm -> capture BATCH1 received headers -> trigger error #1 (error_id) -> verify freeze ->
+  //   read the trace FIFO twice -> clear the error (trace stays frozen, sticky) -> re-arm ->
+  //   capture BATCH2 (different count) -> trigger error #2 -> verify it re-froze and the write
+  //   pointer "started back" (counts only BATCH2, i.e. re-arm reset it) -> read the FIFO twice.
+  // error_id is used as the trigger because it is repeatable without a full reset and clears when
+  // the HPU table is restored to one-hot. The whole sequence is driven over AXI4-Lite, so reaching
+  // the end proves nothing stalls (a hung regif/datapath would block the blocking read/write tasks).
+  // NOTE: with the half-before/half-after window, error_id has no RX traffic after it, so the "after"
+  // half never fills and the freeze completes via the post-trigger timeout backstop. The captured
+  // window is then all-before, so wptr equals the pre-error packet count (BATCH1/BATCH2) here.
+  task automatic test_packet_trace();
+    int                    BATCH1;
+    int                    BATCH2;
+    logic [REG_DATA_W-1:0] status;
+    logic [REG_DATA_W-1:0] tw0, tw1;   // words read after error #1
+    logic [REG_DATA_W-1:0] tw2, tw3;   // words read after error #2
+    logic [5:0]            wptr1, wptr2; // trace_ctrl[6:1] (6-bit write pointer at depth 64)
+    begin
+      BATCH1 = 5;
+      BATCH2 = 3;
+
+      // --- Arm the trace (flush + start circular capture) ---
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1);
+      repeat(20) @(posedge clk_mhdma_cfg);
+
+      // --- Populate the trace with BATCH1 received notify headers ---
+      for (int i = 0; i < BATCH1; i++) begin
+        iop_id = $urandom(); src_addr = $urandom();
+        send_notify_packet(qsfp_rx_vif[0], dst_mac_addr, src_mac_addr, dst_hpu_id, iop_id, src_addr);
+        repeat(10) @(posedge clk_mhdma);
+      end
+      repeat(50) @(posedge clk_mhdma_cfg);
+
+      // --- Trigger error #1: mark two HPUs as current (error_id) ---
+      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_0_OFS, {1'b1, 3'b0, 4'h0, 24'hABCDE0});
+      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b1, 3'b0, 4'h1, 24'hABCDE1});
+      repeat(400) @(posedge clk_mhdma_cfg); // wait out the post-trigger timeout backstop + freeze publish
+
+      // --- Verify the trace froze and captured exactly BATCH1 entries ---
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
+      wptr1 = status[6:1];
+      $display("%t > [TRACE] after error #1: status=0x%08x frozen=%0b wptr=%0d",
+               $time, status, status[0], wptr1);
+      assert (status[0]) else begin
+        $display("%t > [ERROR] trace did not freeze on error #1", $time);
+        error_unexpected = 1'b1;
+      end
+      assert (wptr1 == BATCH1) else begin
+        $display("%t > [ERROR] trace wptr=%0d after error #1, expected %0d", $time, wptr1, BATCH1);
+        error_unexpected = 1'b1;
+      end
+
+      // --- Read the trace FIFO twice ---
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, tw0);
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, tw1);
+      $display("%t > [TRACE] error #1 read: word0=0x%08x word1=0x%08x", $time, tw0, tw1);
+
+      // --- Clear the error (restore one-hot). Trace must stay frozen (sticky). ---
+      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b0, 3'b0, 4'h1, 24'hABCDE1});
+      repeat(60) @(posedge clk_mhdma_cfg);
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
+      assert (status[0]) else begin
+        $display("%t > [ERROR] trace freeze should stay sticky after the error cleared", $time);
+        error_unexpected = 1'b1;
+      end
+
+      // --- Re-arm: flush + resume capture; verify it unfreezes ---
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1);
+      repeat(60) @(posedge clk_mhdma_cfg);
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
+      $display("%t > [TRACE] after re-arm: status=0x%08x frozen=%0b", $time, status, status[0]);
+      assert (~status[0]) else begin
+        $display("%t > [ERROR] trace still frozen after re-arm", $time);
+        error_unexpected = 1'b1;
+      end
+
+      // --- Capture BATCH2 (different count) then trigger error #2 ---
+      for (int i = 0; i < BATCH2; i++) begin
+        iop_id = $urandom(); src_addr = $urandom();
+        send_notify_packet(qsfp_rx_vif[0], dst_mac_addr, src_mac_addr, dst_hpu_id, iop_id, src_addr);
+        repeat(10) @(posedge clk_mhdma);
+      end
+      repeat(50) @(posedge clk_mhdma_cfg);
+
+      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_0_OFS, {1'b1, 3'b0, 4'h0, 24'hABCDE0});
+      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b1, 3'b0, 4'h1, 24'hABCDE1});
+      repeat(400) @(posedge clk_mhdma_cfg); // wait out the post-trigger timeout backstop + freeze publish
+
+      // --- Verify it re-froze and "started back": wptr now reflects only BATCH2 (re-arm reset it) ---
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
+      wptr2 = status[6:1];
+      $display("%t > [TRACE] after error #2: status=0x%08x frozen=%0b wptr=%0d",
+               $time, status, status[0], wptr2);
+      assert (status[0]) else begin
+        $display("%t > [ERROR] trace did not freeze on error #2", $time);
+        error_unexpected = 1'b1;
+      end
+      assert (wptr2 == BATCH2) else begin
+        $display("%t > [ERROR] trace did not restart: wptr=%0d after error #2, expected %0d (re-arm must reset it)",
+                 $time, wptr2, BATCH2);
+        error_unexpected = 1'b1;
+      end
+
+      // --- Read the trace twice again (pointer reset -> reads from word0, and must not stall) ---
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, tw2);
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, tw3);
+      $display("%t > [TRACE] error #2 read: word0=0x%08x word1=0x%08x", $time, tw2, tw3);
+      $display("%t > [TRACE] re-arm cycle OK: trace re-armed, re-froze and reads completed without stall", $time);
+
+      // --- Leave the trace clean: restore one-hot config and re-arm ---
+      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b0, 3'b0, 4'h1, 24'hABCDE1});
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1);
+      repeat(50) @(posedge clk_mhdma_cfg);
 
       scenario_id = scenario_id + 1;
     end

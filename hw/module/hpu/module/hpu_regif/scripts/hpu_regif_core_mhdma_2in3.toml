@@ -64,6 +64,21 @@ offset= 0x0
   default={Cst=0x0}
   duplicate=["_0", "_1", "_2", "_3", "_4", "_5", "_6", "_7"]
 
+[section.mhdma_system.register.trace_ctrl]
+  description="Packet-trace control + status. WRITE (any value, WriteNotify) flushes the trace buffer and re-arms circular capture; on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data. The buffer is read as a full circular ring: read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr)."
+  owner="Kernel"
+  read_access="Read"
+  write_access="WriteNotify"
+  field.frozen  = {size_b=1, offset_b=0, default={Cst=0x0}, description="An error stopped capture; the buffer is frozen and ready to read"}
+  field.wptr    = {size_b=6, offset_b=1, default={Cst=0x0}, description="Write pointer captured at freeze (= oldest entry index; rotate the ring by this to order oldest->newest)"}
+
+[section.mhdma_system.register.trace_data]
+  description="Packet-trace data window (ReadNotify). Each read returns the next 32-bit word of the frozen trace and advances the read pointer. Entries are 4 words each: word0=command[31:0], word1=command[63:32], word2=command[95:64], word3={timestamp[8:0] @[31:23], fsm_state[12:0] @[22:10], errors[9:0] @[9:0]} where errors mirror the mhdma_system.errors bit layout and fsm_state packs {fsm_formatter[2:0], fsm_cem[1:0], fsm_notify_rx[1:0], fsm_burst[1:0], fsm_read_req[1:0], fsm_notify[1:0]}. Read 4*(valid entries) words; re-arming via trace_ctrl resets the read pointer."
+  owner="Kernel"
+  read_access="ReadNotify"
+  write_access="None"
+  default={Cst=0x0}
+
 # =====================================================================================================================
 [section.mhdma_reset]
 offset= 0x90

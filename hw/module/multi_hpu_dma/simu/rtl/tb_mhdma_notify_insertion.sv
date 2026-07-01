@@ -536,6 +536,10 @@ logic [DST_ADDR_W-1:0] dst_addr;
     .decoder_error              (/*    unused          */),
     .rst_errors                 (/*    unused          */),
 
+    // decoded-header tap (packet-trace debug is a separate module - unused here)
+    .decoder_header_data (/*    unused          */),
+    .decoder_header_valid(/*    unused          */),
+
     // only one lane is used in this tb
     .qsfp_rx_tdata              (qsfp_tx_tdata[lane]     ),
     .qsfp_rx_tkeep_user         (qsfp_tx_tkeep_user[lane]),

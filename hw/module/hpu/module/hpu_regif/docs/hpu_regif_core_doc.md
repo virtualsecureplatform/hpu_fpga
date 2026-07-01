@@ -1,5 +1,5 @@
 # HPU_REGIF_CORE documentation
-**Date**: 2026-06-17
+**Date**: 2026-06-30
 **Tool Version**: 27d9e880d531030160fd8749c606142942d5558d
 
 ## RegisterMap Overview
@@ -44,7 +44,7 @@ Below is a summary of all the registers in the current register map:
 | [status_3in3](#section-status-3in3) | 0x30010 | 0x4 | HPU status of parts 2in3 and 3in3 |
 | [bsk_avail](#section-bsk-avail) | 0x31000 | 0x8 | BSK availability configuration |
 | [runtime_3in3](#section-runtime-3in3) | 0x32000 | 0x48 | Runtime information |
-| [mhdma_system](#section-mhdma-system) | 0x50000 | 0x38 | system configuration |
+| [mhdma_system](#section-mhdma-system) | 0x50000 | 0x3c | system configuration |
 | [mhdma_reset](#section-mhdma-reset) | 0x50090 | 0x8 | Controllable resets for transceivers |
 | [mhdma_request](#section-mhdma-request) | 0x50100 | 0xa8 | Request registers interface |
 | [mhdma_lane](#section-mhdma-lane) | 0x50200 | 0x4 | Line parameter sections |
@@ -4039,17 +4039,18 @@ Below is a summary of all the registers in the current section mhdma_system:
 | [lane](#register-mhdma-systemlane) | 0x50000 | RW |  QSFP transceiver lane configuration |
 | [timeout_notify](#register-mhdma-systemtimeout-notify) | 0x50004 | RW |  Timeout: time before re-launching a request, in clock cycles |
 | [timeout_read_req](#register-mhdma-systemtimeout-read-req) | 0x50008 | RW |  Timeout: time before re-launching a request, in clock cycles |
-| [retry_max](#register-mhdma-systemretry-max) | 0x5000c | RW |  Timeout: maximum number of times we should do retries for both Notify & Retry  |
-| [fsm_value](#register-mhdma-systemfsm-value) | 0x50010 | R. |  Packed read-only snapshot of all internal FSM states: [26:24] formatter, [20:18] slave notify-rx, [17:15] slave ciphertext-emission, [11:9] master read-request, [5:3] master notify |
-| [errors](#register-mhdma-systemerrors) | 0x50014 | R. |  Sticky error flags (cleared by reset_registers): [13] master read-request cmd queue overflow, [12] master notify cmd queue overflow, [11] formatter master cmd discard, [10] formatter slave cmd discard, [9] formatter payload gap, [8] decoder rx FIFO overflow, [7] slave read-request cmd queue overflow, [6] AXI4 HBM read response error, [5] master max retry read-request hit, [4] master max retry notify hit, [3] ciphertext sequence number mismatch, [2:1] per-PC AXI4 HBM write error, [0] multi-HPU one-hot ID violation |
-| [hpu_id_0](#register-mhdma-systemhpu-id-0) | 0x50018 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [hpu_id_1](#register-mhdma-systemhpu-id-1) | 0x5001c | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [hpu_id_2](#register-mhdma-systemhpu-id-2) | 0x50020 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [hpu_id_3](#register-mhdma-systemhpu-id-3) | 0x50024 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [hpu_id_4](#register-mhdma-systemhpu-id-4) | 0x50028 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [hpu_id_5](#register-mhdma-systemhpu-id-5) | 0x5002c | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [hpu_id_6](#register-mhdma-systemhpu-id-6) | 0x50030 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [hpu_id_7](#register-mhdma-systemhpu-id-7) | 0x50034 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [fsm_value](#register-mhdma-systemfsm-value) | 0x5000c | R. |  Packed read-only snapshot of all internal FSM states: [26:24] formatter, [20:18] slave notify-rx, [17:15] slave ciphertext-emission, [11:9] master read-request, [5:3] master notify |
+| [errors](#register-mhdma-systemerrors) | 0x50010 | R. |  Sticky error flags (cleared by reset_registers): [9] master read-request cmd queue overflow, [8] master notify cmd queue overflow, [7] formatter payload gap, [6] decoder rx FIFO overflow, [5] slave read-request cmd queue overflow, [4] AXI4 HBM read response error, [3] ciphertext sequence number mismatch, [2:1] per-PC AXI4 HBM write error, [0] multi-HPU one-hot ID violation |
+| [hpu_id_0](#register-mhdma-systemhpu-id-0) | 0x50014 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [hpu_id_1](#register-mhdma-systemhpu-id-1) | 0x50018 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [hpu_id_2](#register-mhdma-systemhpu-id-2) | 0x5001c | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [hpu_id_3](#register-mhdma-systemhpu-id-3) | 0x50020 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [hpu_id_4](#register-mhdma-systemhpu-id-4) | 0x50024 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [hpu_id_5](#register-mhdma-systemhpu-id-5) | 0x50028 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [hpu_id_6](#register-mhdma-systemhpu-id-6) | 0x5002c | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [hpu_id_7](#register-mhdma-systemhpu-id-7) | 0x50030 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
+| [trace_ctrl](#register-mhdma-systemtrace-ctrl) | 0x50034 | RW |  Packet-trace control + status. WRITE (any value, WriteNotify) flushes the trace buffer and re-arms circular capture; on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data. The buffer is read as a full circular ring: read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr). |
+| [trace_data](#register-mhdma-systemtrace-data) | 0x50038 | R. |  Packet-trace data window (ReadNotify). Each read returns the next 32-bit word of the frozen trace and advances the read pointer. Entries are 4 words each: word0=command[31:0], word1=command[63:32], word2=command[95:64], word3={timestamp[8:0] @[31:23], fsm_state[12:0] @[22:10], errors[9:0] @[9:0]} where errors mirror the mhdma_system.errors bit layout and fsm_state packs {fsm_formatter[2:0], fsm_cem[1:0], fsm_notify_rx[1:0], fsm_burst[1:0], fsm_read_req[1:0], fsm_notify[1:0]}. Read 4*(valid entries) words; re-arming via trace_ctrl resets the read pointer. |
 
 
 ---
@@ -4293,6 +4294,45 @@ Register retry_max contains following Sub-fields:
 - **Read Access**: Read
 - **Write Access**: Write
 - **Offset**: 0x50034
+- **Default**: 0
+
+
+
+
+---
+
+
+### Register mhdma-system.trace-ctrl
+
+- **Description**: Packet-trace control + status. WRITE (any value, WriteNotify) flushes the trace buffer and re-arms circular capture; on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data. The buffer is read as a full circular ring: read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr).
+- **Owner**: Kernel
+- **Read Access**: Read
+- **Write Access**: WriteNotify
+- **Offset**: 0x50034
+- **Default**: C.f. fields
+
+
+#### Field Details
+
+Register trace_ctrl contains following Sub-fields:
+
+| Field Name | Offset_b | Size_b | Default      | Description   |
+|-----------:|:--------:|:------:|:------------:|:--------------|
+| frozen      | 0 | 1 |0| An error stopped capture; the buffer is frozen and ready to read |
+| wptr      | 1 | 6 |0| Write pointer captured at freeze (= oldest entry index; rotate the ring by this to order oldest->newest) |
+
+
+
+---
+
+
+### Register mhdma-system.trace-data
+
+- **Description**: Packet-trace data window (ReadNotify). Each read returns the next 32-bit word of the frozen trace and advances the read pointer. Entries are 4 words each: word0=command[31:0], word1=command[63:32], word2=command[95:64], word3={timestamp[8:0] @[31:23], fsm_state[12:0] @[22:10], errors[9:0] @[9:0]} where errors mirror the mhdma_system.errors bit layout and fsm_state packs {fsm_formatter[2:0], fsm_cem[1:0], fsm_notify_rx[1:0], fsm_burst[1:0], fsm_read_req[1:0], fsm_notify[1:0]}. Read 4*(valid entries) words; re-arming via trace_ctrl resets the read pointer.
+- **Owner**: Kernel
+- **Read Access**: ReadNotify
+- **Write Access**: None
+- **Offset**: 0x50038
 - **Default**: 0
 
 
@@ -5237,7 +5277,3 @@ Below is a summary of all the registers in the current section mhdma_hbm_axi4_ad
 
 
 ---
-
-
-
-

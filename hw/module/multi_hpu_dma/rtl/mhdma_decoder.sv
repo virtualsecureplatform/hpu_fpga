@@ -41,13 +41,12 @@ module mhdma_decoder
   output logic                     notify_ack_received,
   input  logic [MAC_ADDR_W-1:0]    current_hpu_mac,
   // Header information ---------------------------------------------------------------------------
-  output command_t                 decoded_command_master,
-  output logic                     decoded_command_master_vld,
-  input  logic                     decoded_command_master_rdy,
-
-  output command_t                 decoded_command_slave,
-  output logic                     decoded_command_slave_vld,
-  input  logic                     decoded_command_slave_rdy,
+  output command_t                 decoded_command,
+  output logic                     decoded_command_vld,
+  input  logic                     decoded_command_rdy,
+  // Decoded-header tap (FIFO push, pre-buffer; feeds the packet-trace debug buffer) --------------
+  output command_t                 decoder_header_data,
+  output logic                     decoder_header_valid,
   // Streaming Ciphertext payload -----------------------------------------------------------------
   output logic [MRMAC_AXIS_W-1:0]  rx_tdata_out,
   output logic                     rx_tvalid_out,
@@ -258,7 +257,10 @@ module mhdma_decoder
 
   assign fifo_rx_cmd_in_data = {src_mac_addr, seq_num, hpu_id, rsvd, flag, mode, req_id, iop_id, ct_src_addr, ct_dst_addr};
 
-  // Master-role command queue (NOTIFY_ACK + CT EMISSION)
+  // Tap the FIFO push (pre-buffer) out for the packet-trace debug buffer.
+  assign decoder_header_data = fifo_rx_cmd_in_data;
+  assign decoder_header_valid  = fifo_rx_cmd_in_vld;
+
   fifo_ram_rdy_vld # (
     .WIDTH       ($bits(command_t)          ),
     .DEPTH       (RX_FIFO_DEPTH             )

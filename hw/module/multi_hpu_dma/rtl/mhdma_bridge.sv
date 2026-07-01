@@ -99,6 +99,12 @@ module mhdma_bridge
   output logic                                    interrupt_notify,
   input  logic                                    clear_interrupt_rr,
   output logic                                    interrupt_read_request,
+  // Packet trace debug interface (clk_mhdma_cfg) -----------------------------
+  input  logic                                    trace_rd_en,
+  output logic [REG_DATA_W-1:0]                   trace_rd_data,
+  input  logic                                    trace_arm,
+  output logic                                    trace_frozen,
+  output logic [$clog2(TRACE_DEPTH)-1:0]          trace_wptr,
   // QSFP system interface ----------------------------------------------------
   // == TX
   output logic [MRMAC_AXIS_W-1:0]                 qsfp_tx_tdata,
@@ -238,11 +244,21 @@ module mhdma_bridge
   logic notify_ack_received;
 
   // Errors
-  mhdma_error_t mhdma_errors;
+  mhdma_error_t   mhdma_errors;
+  logic           error_detected; // OR of all mhdma-domain errors; arms the decoder packet-trace window
   decoder_error_t decoder_error;
+
   format_error_t format_error;
   master_error_t master_error;
   slave_error_t slave_error;
+
+  // Packet-trace per-entry side-band: {FSM state, mhdma errors} sampled with each header.
+  logic [TRACE_FSM_W-1:0] trace_fsm_state;
+  logic [TRACE_AUX_W-1:0] trace_aux;
+
+  // Decoded-header tap (FIFO push, pre-buffer) feeding the packet-trace debug buffer.
+  command_t decoder_header_data;
+  logic     decoder_header_valid;
 
   // Master module does the controls for sending read request and Notifies requests
   mhdma_master mhdma_master (
@@ -376,12 +392,12 @@ module mhdma_bridge
     .notify_ack_received         (notify_ack_received                         ),
     .current_hpu_mac             (current_hpu_mac                             ),
     // Header information -----------------------------------------------------
-    .decoded_command_master      (decoded_command_master                      ),
-    .decoded_command_master_rdy  (decoded_command_master_rdy                  ),
-    .decoded_command_master_vld  (decoded_command_master_vld                  ),
-    .decoded_command_slave       (decoded_command_slave                       ),
-    .decoded_command_slave_rdy   (decoded_command_slave_rdy                   ),
-    .decoded_command_slave_vld   (decoded_command_slave_vld                   ),
+    .decoded_command             (decoded_command                             ),
+    .decoded_command_rdy         (decoded_command_rdy                         ),
+    .decoded_command_vld         (decoded_command_vld                         ),
+    // Decoded-header tap (feeds mhdma_pkt_trace) -----------------------------
+    .decoder_header_data         (decoder_header_data                         ),
+    .decoder_header_valid        (decoder_header_valid                        ),
     // RX payload -------------------------------------------------------------
     .rx_tdata_out                (decoder_rx_tdata                            ),
     .rx_tvalid_out               (decoder_rx_tvalid                           ),
@@ -396,6 +412,25 @@ module mhdma_bridge
     // statistics -------------------------------------------------------------
     .stat                        (decoder_stat                                ),
     .stat_rst                    (decoder_stat_rst                            )
+  );
+
+  // Packet-trace debug buffer: circular capture of decoded headers around an mhdma error.
+  mhdma_pkt_trace mhdma_pkt_trace (
+    // Capture side (clk_mhdma) -----------------------------------------------
+    .clk_mhdma                   (clk_mhdma                                   ),
+    .resetn_mhdma                (resetn_mhdma                                ),
+    .header_valid                (decoder_header_valid                        ),
+    .header_data                 (decoder_header_data                         ),
+    .error_detected              (error_detected                              ),
+    .trace_aux                   (trace_aux                                   ),
+    // Readout / control side (clk_mhdma_cfg) ---------------------------------
+    .clk_mhdma_cfg               (clk_mhdma_cfg                               ),
+    .resetn_mhdma_cfg            (resetn_mhdma_cfg                            ),
+    .trace_arm                   (trace_arm                                   ),
+    .trace_rd_en                 (trace_rd_en                                 ),
+    .trace_rd_data               (trace_rd_data                               ),
+    .trace_frozen                (trace_frozen                                ),
+    .trace_wptr                  (trace_wptr                                  )
   );
 
   // the formatter gathers commands from master & slave module and sends it to axis
@@ -447,7 +482,22 @@ module mhdma_bridge
   assign mhdma_errors.slave_error     = slave_error;
   assign mhdma_errors.master_error    = master_error;
   assign mhdma_errors.error_id        = error_id;
+
+  // ==============================================================================================
+  // Trace
+  // ==============================================================================================
+  // stat_to_cfg is not cdc'd yet here. Name is just stating a direction.
   assign stat_to_cfg.mhdma_errors = {{(32-$bits(mhdma_error_t)){1'b0}}, mhdma_errors};
+  assign error_detected = |mhdma_errors;
+
+  assign trace_fsm_state = {formatter_stat.fsm_formatter,
+                            slave_stat.fsm_cem,
+                            slave_stat.fsm_notify_rx,
+                            master_stat.fsm_burst,
+                            master_stat.fsm_read_req,
+                            master_stat.fsm_notify};
+
+  assign trace_aux = {trace_fsm_state, mhdma_errors};
 
   // =========================================================================================== //
   // Statistics: map per-submodule structs to CDC structs
