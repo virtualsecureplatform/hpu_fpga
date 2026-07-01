@@ -29,7 +29,7 @@ GREEN='\033[1;32m'
 NC='\033[0m'
 
 # Unit test modules (not constrained by regfile: can vary PEM_PC)
-UNIT_TESTS=("tb_mhdma_decoder" "tb_mhdma_formatter" "tb_mhdma_master" "tb_mhdma_slave")
+UNIT_TESTS=("tb_mhdma_decoder" "tb_mhdma_pkt_trace" "tb_mhdma_formatter" "tb_mhdma_master" "tb_mhdma_slave")
 
 # Scenario tests (use top-level, PEM_PC=2 only)
 SCENARIO_TESTS=("tb_mhdma_errors" "tb_mhdma_notify_insertion" "tb_mhdma_parallel_read" "tb_mhdma_parallel_notify" "tb_mhdma_pkt_loss")

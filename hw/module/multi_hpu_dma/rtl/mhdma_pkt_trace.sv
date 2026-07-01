@@ -21,7 +21,7 @@
 //
 // NOTE: the wptr CDC (clk_mhdma -> clk_mhdma_cfg) is safe only because trace_wptr_q is static by
 //  the time it is published: writes stop on trace_tail_done (one cycle before trace_frozen_q rises)
-//  and the cfg side only latches wptr while frozen_cfg is high. Do not publish wptr while capture
+//  and the cfg side only samples wptr into its flop while frozen_cfg is high. Do not publish wptr while capture
 //  is running.
 //
 // TODO / TOREVIEW: trace_ram MEMORY_PRIMITIVE is "auto".
@@ -212,7 +212,7 @@ module mhdma_pkt_trace
 
   // Status CDC: clk_mhdma -> clk_mhdma_cfg -------------------------------------------------------
   // frozen_q and wptr_q can update on the same clk_mhdma edge; cross each on its own synchronizer,
-  // then latch wptr in cfg while frozen is high so a frozen=1 readout always sees a coherent wptr.
+  // then sample wptr in cfg while frozen is high so a frozen=1 readout always sees a coherent wptr.
   logic                frozen_cfg;          // synced frozen
   logic                frozen_cfg_q;        // +1 cfg-cycle delay (publish stage)
   logic [TRACE_AW-1:0] wptr_cfg;            // synced wptr (static while frozen)
