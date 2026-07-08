@@ -23,8 +23,8 @@
 
 extern uint8_t cur_iid;
 extern uint8_t phys_hpu_id;
-extern mhdma_element_t mhdma_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
-extern uint8_t mhdma_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
+extern mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
+extern uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 extern iop_state_t iop_state[IOP_ID_MAX_COUNT];
 extern dst_store_t dst_store;
 extern src_store_t src_store;
@@ -50,14 +50,14 @@ void interrupt_notify_handler(uint64_t notify_data) {
 
   switch (mode) {
     case CMD_USER: {
-      uint8_t current_state = mhdma_table_state[iid][flag];
+      uint8_t current_state = mhdma_rx_table_state[iid][flag];
       printf("notify user before: iid %d flag %d state %d\n", iid, flag, current_state);
-      mhdma_table_state[iid][flag] = MHDMA_STATE_RECEIVED;
+      mhdma_rx_table_state[iid][flag] = MHDMA_STATE_RECEIVED;
       if (current_state == MHDMA_STATE_LB2B_WAITING) {
-        mhdma_table_state[iid][flag] = MHDMA_STATE_READING;
+        mhdma_rx_table_state[iid][flag] = MHDMA_STATE_READING;
         generate_read_req(iid, flag);
       }
-      printf("notify user after: iid %d flag %d state %d\n", iid, flag, mhdma_table_state[iid][flag]);
+      printf("notify user after: iid %d flag %d state %d\n", iid, flag, mhdma_rx_table_state[iid][flag]);
       break;
     }
     case CMD_DST: {
@@ -118,12 +118,12 @@ void interrupt_read_complete_handler(uint64_t rc_data) {
 
   switch (mode) {
     case CMD_USER: {
-      printf("[HPU%d] read_complete user before: iid %d flag %d state %d\n", phys_hpu_id, iid, flag, mhdma_table_state[iid][flag]);
+      printf("[HPU%d] read_complete user before: iid %d flag %d state %d\n", phys_hpu_id, iid, flag, mhdma_rx_table_state[iid][flag]);
       // state should be MHDMA_STATE_READING
-      if (mhdma_table_state[iid][flag] == MHDMA_STATE_READING) {
-        mhdma_table_state[iid][flag] = MHDMA_STATE_RESOLVED;
+      if (mhdma_rx_table_state[iid][flag] == MHDMA_STATE_READING) {
+        mhdma_rx_table_state[iid][flag] = MHDMA_STATE_RESOLVED;
       }
-      printf("[HPU%d] read_complete user after: iid %d flag %d state %d\n", phys_hpu_id, iid, flag, mhdma_table_state[iid][flag]);
+      printf("[HPU%d] read_complete user after: iid %d flag %d state %d\n", phys_hpu_id, iid, flag, mhdma_rx_table_state[iid][flag]);
       break;
     }
     case CMD_DST: {
