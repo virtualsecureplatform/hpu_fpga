@@ -79,8 +79,8 @@ void iop_state_init(void) {
 }
 
 void iop_state_node_ack(uint8_t iid, uint8_t nb_hpu) {
-  if (nb_hpu > 7) {
-    PLL_ERR("ucore", "iop_state_node_ack called on iid %d with nb_hpu %d > 7", iid, nb_hpu);
+  if (nb_hpu > MAX_HPU_IN_CLUSTER) {
+    PLL_ERR("ucore", "iop_state_node_ack called on iid %d with nb_hpu %d > %d", iid, nb_hpu, MAX_HPU_IN_CLUSTER);
   }
   if ((iop_state[iid].state == IOP_STATE_UNKNOWN)
    || (iop_state[iid].state == IOP_STATE_DONE)) {
@@ -515,8 +515,8 @@ void iop_teardown(uint8_t iid) {
     if ((i != phys_hpu_id) // Not local
         && ( ((node_mask >> i) & 0x1) == 0x1)) // active in cluster
     {
-      if (iop_state[iid].nb_hpu > 7) {
-        PLL_ERR("ucore", "iop_teardown EOIOp notify loop on iid %d with nb_hpu %d > 7 (phys-hpu-id %d node_mask %x)", iid, iop_state[iid].nb_hpu, i, node_mask);
+      if (iop_state[iid].nb_hpu > MAX_HPU_IN_CLUSTER) {
+        PLL_ERR("ucore", "iop_teardown EOIOp notify loop on iid %d with nb_hpu %d > %d (phys-hpu-id %d node_mask %x)", iid, iop_state[iid].nb_hpu, MAX_HPU_IN_CLUSTER, i, node_mask);
       }
       vOSAL_EnterCritical();
       generate_iop_notify(iid, iop_state[iid].nb_hpu, i);
