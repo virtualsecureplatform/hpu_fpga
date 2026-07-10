@@ -21,8 +21,8 @@
 #endif
 
 extern uint8_t phys_hpu_id;
-extern volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][FLAG_TX_MAX_COUNT];
-extern volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
+extern volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][MAX_HPU_IN_CLUSTER][FLAG_MAX_COUNT];
+extern volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 
 #ifdef UCORE_MHDMA_SIMU
   extern int output_pipe;
@@ -94,10 +94,7 @@ void generate_operand_read_req(uint8_t iop_id, uint8_t mode, uint8_t slave_hpu_i
 }
 
 void generate_user_notify(uint8_t iop_id, uint8_t vid, uint8_t flag) {
-  // NB: hid is 3b wide and flag 6b wide. Pack them to index the table.
-  // NB': only notify path is indexed by hid, reception are hid agnostic
-  uint8_t table_idx = (vid<<6) + flag;
-  volatile mhdma_element_t *current_elt = &mhdma_tx_table[iop_id][table_idx];
+  volatile mhdma_element_t *current_elt = &mhdma_tx_table[iop_id][vid][flag];
   mhdma_cmd_t nc;
   nc.raw = 0;
   nc.fields.dst_cid = 0;

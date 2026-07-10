@@ -30,9 +30,9 @@ uint8_t phys_hpu_id;
 uint8_t node_mask;
 uint16_t b2b_pool_start_addr = 12288;
 uint16_t b2b_pool_size = 4096;
-volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][FLAG_TX_MAX_COUNT];
-volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
-volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
+volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][MAX_HPU_IN_CLUSTER][FLAG_MAX_COUNT];
+volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
+volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 extern uint64_t intr_readc_cnt;
 extern uint32_t debug_intr_global_cnt;
 
@@ -1118,8 +1118,7 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
       uint16_t raw_ct_id = get_raw_ct_id(dop);
       uint8_t notify_flag = dop->ucore.flag;
       uint8_t notify_vid = dop->ucore.hid;
-      uint8_t notify_idx = (notify_vid<<6) + notify_flag;
-      volatile mhdma_element_t *current_elt = &mhdma_tx_table[cur_iid][notify_idx];
+      volatile mhdma_element_t *current_elt = &mhdma_tx_table[cur_iid][notify_vid][notify_flag];
       current_elt->src_ct_id = raw_ct_id;
       current_elt->slave_hpu_id = phys_hpu_id;
       current_elt->master_hpu_id = get_phys_of(notify_vid, cur_mapping);

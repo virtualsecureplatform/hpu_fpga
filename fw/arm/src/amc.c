@@ -311,9 +311,9 @@ extern uint16_t b2b_pool_size;
 extern volatile iop_state_t iop_state[IOP_ID_MAX_COUNT];
 extern volatile src_store_t src_store;
 extern volatile dst_store_t dst_store;
-extern volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][FLAG_TX_MAX_COUNT];
-extern volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
-extern volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
+extern volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][MAX_HPU_IN_CLUSTER][FLAG_MAX_COUNT];
+extern volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
+extern volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 
 /******************************************************************************/
 /* Function implementations                                                   */

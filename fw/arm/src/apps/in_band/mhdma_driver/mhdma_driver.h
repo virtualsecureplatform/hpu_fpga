@@ -46,7 +46,7 @@ typedef union {
 void generate_read_req(uint8_t iop_id, uint8_t flag);
 void generate_operand_read_req(uint8_t iop_id, uint8_t mode, uint8_t slave_hpu_id, uint16_t src_cid, uint16_t dst_cid, uint16_t target_cid);
 
-void generate_user_notify(uint8_t iop_id, uint8_t hid, uint8_t flag);
+void generate_user_notify(uint8_t iop_id, uint8_t vid, uint8_t flag);
 void generate_iop_notify(uint8_t iop_id, uint8_t nb_hpus, uint8_t master_hpu_id);
 void generate_ucore_notify(uint8_t iid, uint8_t master_hpu_id, uint16_t src_cid, uint16_t dst_cid, uint16_t target_cid);
 
