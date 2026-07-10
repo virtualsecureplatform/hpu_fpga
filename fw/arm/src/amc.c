@@ -311,10 +311,9 @@ extern uint16_t b2b_pool_size;
 extern volatile iop_state_t iop_state[IOP_ID_MAX_COUNT];
 extern volatile src_store_t src_store;
 extern volatile dst_store_t dst_store;
-extern volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
-extern volatile uint8_t mhdma_tx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
-extern volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
-extern volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
+extern volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][FLAG_TX_MAX_COUNT];
+extern volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
+extern volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
 
 /******************************************************************************/
 /* Function implementations                                                   */
@@ -354,7 +353,7 @@ void vInterruptHandler_isc_ack( void* pvCallBackRef ) {
               if (dop_ack.sync.is_inner == 1) {
                 // internal ack
                 if (dop_ack.sync.flag != 0) {
-                  generate_user_notify(dop_ack.sync.iid, dop_ack.sync.flag);
+                  generate_user_notify(dop_ack.sync.iid, dop_ack.sync.hid, dop_ack.sync.flag);
                 } else { // flag == 0 => DST available
                   RemoteOperand_t *rdst = dst_notifyq_getdst_nofree(dop_ack.sync.iid);
                   if (rdst) {
@@ -982,11 +981,12 @@ static void vTaskFuncMain( void )
                       if ((patch_rc & 0x10000) != 0) { // insert inner SYNC
                         DOpu_t new_dop;
                         // insert SYNC on flag 0 (dst) by sync DOp
-                        new_dop.sync.flag = 0;
+                        new_dop.raw = 0;
                         new_dop.sync.opcode = SYNC_OPCODE;
                         new_dop.sync.is_inner = 1;
                         new_dop.sync.iid = cur_iid;
-                        new_dop.sync._pad = 0;
+                        new_dop.sync.hid = 0;
+                        new_dop.sync.flag = 0;
 
                         dop_buffer[(dop_buffer_pos)%DOP_BUFFER_SIZE] = new_dop.raw;
                         dop_buffer_pos += 1;
@@ -999,11 +999,12 @@ static void vTaskFuncMain( void )
 
                     // Add DOp sync
                     DOpu_t dop_sync;
+                    dop_sync.raw = 0;
                     dop_sync.sync.opcode = SYNC_OPCODE;
-                    dop_sync.sync.iid = cur_iid;
                     dop_sync.sync.is_inner = 0;
+                    dop_sync.sync.iid = cur_iid;
+                    dop_sync.sync.hid = 0;
                     dop_sync.sync.flag = 0;
-                    dop_sync.sync._pad = 0;
                     dop_buffer[(dop_buffer_pos) % DOP_BUFFER_SIZE] = dop_sync.raw;
                     // Correctly handle full buffer flush
                     uint32_t remaining_dop = (((dop_buffer_pos+1)%DOP_BUFFER_SIZE) == 0) ? DOP_BUFFER_SIZE : (dop_buffer_pos+1)%DOP_BUFFER_SIZE;

@@ -99,10 +99,13 @@ struct dop_pbs_t {
 } __attribute__((packed));
 
 struct dop_sync_t {
-  uint32_t _pad: 11;
   uint8_t flag: 6;
-  uint8_t is_inner: 1;
+  uint8_t _pad_a: 2;
+  uint8_t hid: 3;
+  uint8_t _pad_b: 5;
   uint8_t iid: 8;
+  uint8_t is_inner: 1;
+  uint8_t _pad_c: 1;
   uint8_t opcode:6;
 } __attribute__((packed));
 

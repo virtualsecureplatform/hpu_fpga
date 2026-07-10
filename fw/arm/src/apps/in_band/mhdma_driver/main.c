@@ -23,8 +23,8 @@
 
 extern uint8_t cur_iid;
 extern uint8_t phys_hpu_id;
-extern mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
-extern uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
+extern mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
+extern uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_RX_MAX_COUNT];
 extern iop_state_t iop_state[IOP_ID_MAX_COUNT];
 extern dst_store_t dst_store;
 extern src_store_t src_store;
@@ -169,7 +169,7 @@ void interrupt_ack_handler(uint32_t ack) {
   if (dop_ack.sync.opcode == SYNC_OPCODE) {
     if (dop_ack.sync.is_inner == 1) {
       // internal ack
-      generate_user_notify(dop_ack.sync.iid, dop_ack.sync.flag);
+      generate_user_notify(dop_ack.sync.iid, dop_ack.sync.hid, dop_ack.sync.flag);
     } else {
       // iop ack
       uint8_t ack_iid = dop_ack.sync.iid;

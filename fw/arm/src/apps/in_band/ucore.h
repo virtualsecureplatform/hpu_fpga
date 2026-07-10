@@ -73,7 +73,8 @@
 #define MAX_DST_VARS      64
 #define MAX_VAR_BLKS      128
 #define HPU_MAX_COUNT     7
-#define FLAG_MAX_COUNT    64
+#define FLAG_RX_MAX_COUNT    64
+#define FLAG_TX_MAX_COUNT    (MAX_HPU_IN_CLUSTER * FLAG_RX_MAX_COUNT)
 #define B2B_POOL_SIZE     4096
 #define DST_NOTIFYQ_SIZE  256
 
