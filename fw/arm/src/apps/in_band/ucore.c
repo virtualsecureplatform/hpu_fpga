@@ -1117,19 +1117,19 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
     case DOPS_NOTIFY: {
       uint16_t raw_ct_id = get_raw_ct_id(dop);
       uint8_t notify_flag = dop->ucore.flag;
-      uint8_t notify_hid = dop->ucore.hid;
-      uint8_t notify_idx = (notify_hid<<6) + notify_flag;
+      uint8_t notify_vid = dop->ucore.hid;
+      uint8_t notify_idx = (notify_vid<<6) + notify_flag;
       volatile mhdma_element_t *current_elt = &mhdma_tx_table[cur_iid][notify_idx];
       current_elt->src_ct_id = raw_ct_id;
       current_elt->slave_hpu_id = phys_hpu_id;
-      current_elt->master_hpu_id = get_phys_of(dop->ucore.hid, cur_mapping);
+      current_elt->master_hpu_id = get_phys_of(notify_vid, cur_mapping);
 
       //replace notify by sync DOp
       dop->raw = 0;
       dop->sync.opcode = SYNC_OPCODE;
       dop->sync.is_inner = 1;
       dop->sync.iid = cur_iid;
-      dop->sync.hid = notify_hid;
+      dop->sync.hid = notify_vid;
       dop->sync.flag = notify_flag;
 
       break;

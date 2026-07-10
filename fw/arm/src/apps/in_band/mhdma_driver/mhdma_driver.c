@@ -93,10 +93,10 @@ void generate_operand_read_req(uint8_t iop_id, uint8_t mode, uint8_t slave_hpu_i
   write_read_req_command(phys_hpu_id, read_req.raw);
 }
 
-void generate_user_notify(uint8_t iop_id, uint8_t hid, uint8_t flag) {
+void generate_user_notify(uint8_t iop_id, uint8_t vid, uint8_t flag) {
   // NB: hid is 3b wide and flag 6b wide. Pack them to index the table.
   // NB': only notify path is indexed by hid, reception are hid agnostic
-  uint8_t table_idx = hid << 6 + flag;
+  uint8_t table_idx = (vid<<6) + flag;
   volatile mhdma_element_t *current_elt = &mhdma_tx_table[iop_id][table_idx];
   mhdma_cmd_t nc;
   nc.raw = 0;
