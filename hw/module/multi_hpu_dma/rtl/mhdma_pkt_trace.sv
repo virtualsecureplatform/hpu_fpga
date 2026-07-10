@@ -24,7 +24,6 @@
 //  and the cfg side only samples wptr into its flop while frozen_cfg is high. Do not publish wptr while capture
 //  is running.
 //
-// TODO / TOREVIEW: trace_ram MEMORY_PRIMITIVE is "auto".
 // ================================================================================================
 
 module mhdma_pkt_trace
@@ -189,11 +188,12 @@ module mhdma_pkt_trace
   // Dual-clock RAM -------------------------------------------------------------------------------
   logic [TRACE_W-1:0] trace_rd_entry;
 
-  // TODO / TOREVIEW. now ram type is "auto"
+  // TODO / TOREVIEW. now ram type is "block"
   xpm_mem_sdpram_wrapper #(
-    .DATA_W       (TRACE_W    ),
-    .DEPTH        (TRACE_DEPTH),
-    .READ_LATENCY (1          )
+    .DATA_W           (TRACE_W    ),
+    .DEPTH            (TRACE_DEPTH),
+    .READ_LATENCY     (1          ),
+    .MEMORY_PRIMITIVE ("block"    )
   ) trace_ram (
     // clk_mhdma write port
     .wr_clk  (clk_mhdma                                       ),

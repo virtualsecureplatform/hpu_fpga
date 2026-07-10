@@ -5,8 +5,8 @@
   "offset": 0,
   "range": 393216,
   "ext_pkg": [
-    "axi_if_common_param_pkg",
-    "axi_if_shell_axil_pkg"
+    "axi_if_shell_axil_pkg",
+    "axi_if_common_param_pkg"
   ],
   "section": [
     {
@@ -4138,7 +4138,7 @@
       "description": "system configuration",
       "offset": 327680,
       "bytes_align": 4,
-      "range": 60,
+      "range": 64,
       "register": [
         {
           "name": "lane",
@@ -4438,7 +4438,7 @@
           "owner": "Kernel",
           "read_access": "Read",
           "write_access": "WriteNotify",
-          "offset": 327732,
+          "offset": 327736,
           "default": {
             "ParamsField": {
               "params": [],
@@ -4481,7 +4481,7 @@
           "owner": "Kernel",
           "read_access": "ReadNotify",
           "write_access": "None",
-          "offset": 327736,
+          "offset": 327740,
           "default": {
             "Cst": 0
           },

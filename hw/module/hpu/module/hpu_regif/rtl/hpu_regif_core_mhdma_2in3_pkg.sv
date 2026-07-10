@@ -1,7 +1,7 @@
 // ============================================================================================== //
 // Description  : register  map address definition package
 // This file was generated with rust regmap generator:
-//  * Date:  2026-06-30
+//  * Date:  2026-07-10
 //  * Tool_version: 27d9e880d531030160fd8749c606142942d5558d
 // ---------------------------------------------------------------------------------------------- //
 //
@@ -45,8 +45,8 @@ package hpu_regif_core_mhdma_2in3_pkg;
     logic [(6-1):0] wptr;
     logic [(1-1):0] frozen;
    } mhdma_system_trace_ctrl_t;
-  localparam int MHDMA_SYSTEM_TRACE_CTRL_OFS = 'h50034;
-  localparam int MHDMA_SYSTEM_TRACE_DATA_OFS = 'h50038;
+  localparam int MHDMA_SYSTEM_TRACE_CTRL_OFS = 'h50038;
+  localparam int MHDMA_SYSTEM_TRACE_DATA_OFS = 'h5003c;
   typedef struct packed {
     logic [(20-1):0] padding_12;
     logic [(4-1):0] rx_rst;

@@ -392,9 +392,13 @@ module mhdma_bridge
     .notify_ack_received         (notify_ack_received                         ),
     .current_hpu_mac             (current_hpu_mac                             ),
     // Header information -----------------------------------------------------
-    .decoded_command             (decoded_command                             ),
-    .decoded_command_rdy         (decoded_command_rdy                         ),
-    .decoded_command_vld         (decoded_command_vld                         ),
+    .decoded_command_master      (decoded_command_master                      ),
+    .decoded_command_master_vld  (decoded_command_master_vld                  ),
+    .decoded_command_master_rdy  (decoded_command_master_rdy                  ),
+
+    .decoded_command_slave       (decoded_command_slave                       ),
+    .decoded_command_slave_vld   (decoded_command_slave_vld                   ),
+    .decoded_command_slave_rdy   (decoded_command_slave_rdy                   ),
     // Decoded-header tap (feeds mhdma_pkt_trace) -----------------------------
     .decoder_header_data         (decoder_header_data                         ),
     .decoder_header_valid        (decoder_header_valid                        ),
