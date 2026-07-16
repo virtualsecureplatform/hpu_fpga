@@ -89,6 +89,7 @@ INT_SIZE=16
 IOP="ADD"
 REGIF_FILE_S="${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_cfg_1in3.toml \
               ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_cfg_3in3.toml \
+              ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_mhdma_2in3.toml \
               ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_prc_1in3.toml \
               ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_prc_3in3.toml"
 
@@ -585,7 +586,7 @@ SOFT_OUTPUT_DIR=${PROJECT_DIR}/hw/output/micro_code
 MEM_DIR=${PROJECT_DIR}/hw/memory_file/microblaze
 
 gtv_bin="${PROJECT_DIR}/sw/bin/gtv/latest/gtv"
-hpu_mockup_bin="${PROJECT_DIR}/sw/bin/tfhe-rs/latest/hpu_mockup"
+hpu_sim_bin="${PROJECT_DIR}/sw/bin/tfhe-rs/latest/hpu_sim"
 hpu_bench_bin="${PROJECT_DIR}/sw/bin/tfhe-rs/latest/hpu_bench"
 twd_script="${PROJECT_DIR}/hw/module/hpu/simu/scripts/gen_twd.py"
 hpu_mockup_cfg_script="${PROJECT_DIR}/sw/bin/tfhe-rs/config/gen_hpu_mockup_config.py"
@@ -1025,14 +1026,15 @@ if [ $GEN_STIMULI -eq 1 ] ; then
   echo "INFO> Create stimuli"
 
   # Start mockup in background
-  hpu_mockup_cmd="$hpu_mockup_bin \
-      --config ${INPUT_DIR}/hpu_cfg.toml\
-      --params ${INPUT_DIR}/hpu_mockup_cfg.toml \
-      --dump-out ${INPUT_DIR}/ucode"
-  echo "INFO> Running $hpu_mockup_cmd in background"
-  RUST_LOG="debug" $hpu_mockup_cmd &
+  hpu_sim_cmd="$hpu_sim_bin \
+      --config ${INPUT_DIR}/hpu_cfg.toml \
+      --compute-params ${INPUT_DIR}/hpu_mockup_cfg.toml \
+      --duration 3600_s"
+  echo "INFO> Running $hpu_sim_cmd in background"
+  RUST_LOG="debug" $hpu_sim_cmd &
   hpu_mockup_pid=$!
-  # Let some time to hpu_mockup to init and configure Ipc
+
+  # Let some time to hpu_sim to init and configure Ipc
   sleep 1
 
   # In case of custom IOP check if it required a immediat

@@ -2,8 +2,11 @@
 [fpga]
   regmap={{regmap_file}}
   polling_us=100000
+  node_id=[0]
 [fpga.ffi.Sim]
   ipc_name="/tmp/${USER}/hpu_mockup_ipc"
+  iopq={head_ofst=0x0, tail_ofst=0x8, data_ofst=0x10, size_w=512, mem= {Ddr={offset=0x2000_0000}}}
+  ackq={head_ofst=0x0, tail_ofst=0x8, data_ofst=0x10, size_w=512, mem= {Ddr={offset=0x2000_1000}}}
 
 [rtl]
   bpip_use = true
@@ -17,12 +20,14 @@
     {Hbm= {pc=32}},
     {Hbm= {pc=33}},
   ]
-  heap_size = 3584
+  user_size = 12288
+  b2b_size = 4096
+  heap_size = 16384
 
   lut_mem = 256
   lut_pc = {Hbm={pc=34}}
 
-  fw_size= 65536
+  fw_size= 16777216 # 16 MiB — must hold FW runtime area + full IOp translation table
   fw_pc = {Ddr= {offset= 0x3900_0000}} # NB: Allocation must take place in the Discret DDR
 
    bsk_pc = [
