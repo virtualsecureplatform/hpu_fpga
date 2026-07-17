@@ -30,6 +30,7 @@ if __name__ == '__main__':
     parser.add_argument('--cust_iop',  dest='cust_iop', action='append', type=str, help="Custom IOP", default=[])
     parser.add_argument('--min_batch_size',  dest='min_batch_size', type=int, help="Minimal batch size", default=4)
     parser.add_argument('--dop_implementation',  dest='dop_implementation', type=str, help="DOp implementation", choices=["Ilp", "Llt"], default="Ilp")
+    parser.add_argument('--template',  dest='template', type=str, help="Jinja template filename (in templates/).", default=TEMPLATE_NAME)
     parser.add_argument('-f',  dest='force',        help="Overwrite if file already exists", action="store_true", default=False)
 
     args = parser.parse_args()
@@ -54,7 +55,7 @@ if __name__ == '__main__':
     config = dict(args.__dict__)
     config.update({ "cust_iop" : cust_iop, })
 
-    template = template_env.get_template(TEMPLATE_NAME)
+    template = template_env.get_template(args.template)
     file_path = args.outfile
     if (os.path.exists(file_path) and not(args.force)):
         sys.exit("ERROR> File {:s} already exists".format(file_path))
@@ -63,4 +64,3 @@ if __name__ == '__main__':
             print("INFO> File {:s} already exists. Overwrite it.".format(file_path))
         with open(file_path, 'w') as fp:
             fp.write(template.render(config))
-

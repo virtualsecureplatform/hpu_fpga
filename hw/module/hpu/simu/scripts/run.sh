@@ -1025,7 +1025,54 @@ if [ $GEN_STIMULI -eq 1 ] ; then
   echo "###################################################"
   echo "INFO> Create stimuli"
 
-  # Start mockup in background
+  # Legacy #####################################################################
+  # hpu_sim can't emit iop/dop yet.
+  # Dump to scratch, copy ONLY the program, leaving hpu_sim's key/blwe/glwe/golden untouched.
+  prog_scratch="${INPUT_DIR}/prog_scratch"
+  mockup_legacy="${PROJECT_DIR}/sw/bin/tfhe-rs/v2.9/hpu_mockup"
+  bench_legacy="${PROJECT_DIR}/sw/bin/tfhe-rs/v2.9/hpu_bench"
+
+  # Old-schema config for the v2.9 mockup: FFIMode::Sim with ipc_name only (distinct
+  # ipc), no node_id/iopq/ackq, old workq/ackq regif dummy, core cfg/prc only (no mhdma).
+  REGIF_LEGACY_S="${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_cfg_1in3.toml \
+                  ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_cfg_3in3.toml \
+                  ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_prc_1in3.toml \
+                  ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_prc_3in3.toml \
+                  ${SCRIPT_DIR}/legacy_regif_dummy.toml"
+  gen_legacy_cfg_cmd="python3 ${hpu_cfg_script} \
+                --template legacy_hpu_config.toml.j2 \
+                -n $INT_SIZE \
+                --regmap_file ${REGIF_LEGACY_S} \
+                --min_batch_size $MIN_PBS_NB \
+                --dop_implementation $DOP_IMPLEM \
+                $gen_cfg_args \
+                -o ${INPUT_DIR}/hpu_cfg_legacy.toml \
+                -f"
+  echo "INFO> Running $gen_legacy_cfg_cmd"
+  $gen_legacy_cfg_cmd || exit 1
+
+  RUST_LOG="debug" $mockup_legacy \
+      --config ${INPUT_DIR}/hpu_cfg_legacy.toml \
+      --params ${INPUT_DIR}/hpu_mockup_cfg.toml \
+      --dump-out ${prog_scratch} &
+  mockup_legacy_pid=$! # capture immediately
+
+  sleep 1
+
+  $bench_legacy \
+      --config ${INPUT_DIR}/hpu_cfg_legacy.toml \
+      --integer-w ${INT_SIZE} \
+      --seed ${SEED} \
+      --iop ${IOP} || exit 1
+  kill $mockup_legacy_pid
+
+  mkdir -p ${INPUT_DIR}/ucode/iop ${INPUT_DIR}/ucode/dop
+  cp ${prog_scratch}/iop/*.hex ${INPUT_DIR}/ucode/iop/
+  cp ${prog_scratch}/dop/*.hex ${INPUT_DIR}/ucode/dop/
+  rm -rf ${prog_scratch}
+  # Legacy #####################################################################
+
+  # Start hpu_sim (IPC backend for hpu_bench) in background
   hpu_sim_cmd="$hpu_sim_bin \
       --config ${INPUT_DIR}/hpu_cfg.toml \
       --compute-params ${INPUT_DIR}/hpu_mockup_cfg.toml \
