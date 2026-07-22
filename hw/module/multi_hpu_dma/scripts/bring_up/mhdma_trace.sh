@@ -33,18 +33,23 @@ TRACE_DEPTH=64          # localparam int TRACE_DEPTH
 WORDS_PER_ENTRY=4       # TRACE_W / REG_DATA_W = 128/32
 TOTAL_WORDS=$((TRACE_DEPTH * WORDS_PER_ENTRY))
 
-# errors[9:0] bit -> label (mirrors mhdma_system::errors / trace word3[9:0])
+# errors[13:0] bit -> label (mirrors mhdma_system::errors). The trace entry only captures the
+# mhdma-clock bits [11:0] (word3[11:0]); the cfg-clock bits [13:12] are errors-register only.
 ERR_LABEL=(
   "hpu_onehot_id_violation"   # 0
   "hbm_write_error_pc0"       # 1  (per-PC AXI4 HBM write error [2:1])
   "hbm_write_error_pc1"       # 2
   "ct_seq_num_mismatch"       # 3
-  "hbm_read_resp_error"       # 4
-  "slave_rreq_cmdq_ovf"       # 5
-  "decoder_rx_fifo_ovf"       # 6
-  "formatter_payload_gap"     # 7
-  "master_notify_cmdq_ovf"    # 8
-  "master_rreq_cmdq_ovf"      # 9
+  "master_max_retry_notify"   # 4
+  "master_max_retry_rreq"     # 5
+  "hbm_read_resp_error"       # 6
+  "slave_rreq_cmdq_ovf"       # 7
+  "decoder_rx_fifo_ovf"       # 8
+  "formatter_payload_gap"     # 9
+  "formatter_slave_discard"   # 10
+  "formatter_master_discard"  # 11
+  "master_notify_cmdq_ovf"    # 12 (cfg-clock; errors register only, not in trace)
+  "master_rreq_cmdq_ovf"      # 13 (cfg-clock; errors register only, not in trace)
 )
 
 # --------------------------------------------------------------------------------------------- #
@@ -68,7 +73,7 @@ extract_field() {
 # Decode + print the errors bitmap (used for both the errors register and a trace entry).
 print_errors() {
   local errbits=$1 prefix=$2 any=0 i
-  for ((i = 0; i < 10; i++)); do
+  for ((i = 0; i < ${#ERR_LABEL[@]}; i++)); do
     if (( (errbits >> i) & 1 )); then
       printf "%s[%d] %s\n" "$prefix" "$i" "${ERR_LABEL[$i]}"
       any=1
@@ -94,7 +99,7 @@ cmd_status() {
   printf "  trace_ctrl = 0x%08x\n" "$ctrl"
   printf "  frozen     = %d %s\n" "$frozen" "$([ "$frozen" -eq 1 ] && echo '(buffer FROZEN, ready to read)' || echo '(armed / capturing)')"
   printf "  wptr       = %d (oldest entry index at freeze)\n" "$wptr"
-  printf "  errors     = 0x%03x\n" "$errbits"
+  printf "  errors     = 0x%04x\n" "$errbits"
   print_errors "$errbits" "    "
 }
 
@@ -168,11 +173,11 @@ cmd_dump() {
     seq=$(extract_field "$w2" 0 8)
     src_mac=$(extract_field "$w2" 8 24)
 
-    # word3 = {ts[8:0]@23, fsm[12:0]@10, err[9:0]@0}
+    # word3 = {ts[6:0]@25, fsm[12:0]@12, err[11:0]@0}   (err = mhdma_error_t, 12 bits, ETH_PC=2)
     local errbits fsm ts
-    errbits=$(extract_field "$w3" 0 10)
-    fsm=$(extract_field "$w3" 10 13)
-    ts=$(extract_field "$w3" 23 9)
+    errbits=$(extract_field "$w3" 0 12)
+    fsm=$(extract_field "$w3" 12 13)
+    ts=$(extract_field "$w3" 25 7)
     # fsm[12:0] = {fmt[2:0], cem[1:0], nrx[1:0], burst[1:0], rreq[1:0], ntfy[1:0]}
     local f_fmt f_cem f_nrx f_brst f_rreq f_ntfy
     f_ntfy=$(extract_field "$fsm" 0 2)
@@ -192,7 +197,7 @@ cmd_dump() {
   echo "  ---------------------------------------------------------------------------------------------------------------------"
   echo "  (* = entry captured while an error bit was live; these mark the tail after the trigger)"
   echo ""
-  printf "  errors register now = 0x%03x\n" "$errbits_reg"
+  printf "  errors register now = 0x%04x\n" "$errbits_reg"
   print_errors "$errbits_reg" "    "
 }
 

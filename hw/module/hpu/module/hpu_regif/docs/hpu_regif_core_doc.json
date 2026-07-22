@@ -4477,7 +4477,7 @@
         },
         {
           "name": "trace_data",
-          "description": "Packet-trace data window (ReadNotify). Each read returns the next 32-bit word of the frozen trace and advances the read pointer. Entries are 4 words each: word0=command[31:0], word1=command[63:32], word2=command[95:64], word3={timestamp[8:0] @[31:23], fsm_state[12:0] @[22:10], errors[9:0] @[9:0]} where errors mirror the mhdma_system.errors bit layout and fsm_state packs {fsm_formatter[2:0], fsm_cem[1:0], fsm_notify_rx[1:0], fsm_burst[1:0], fsm_read_req[1:0], fsm_notify[1:0]}. Read 4*(valid entries) words; re-arming via trace_ctrl resets the read pointer.",
+          "description": "Packet-trace data window (ReadNotify). Each read returns the next 32-bit word of the frozen trace and advances the read pointer. Entries are 4 words each: word0=command[31:0], word1=command[63:32], word2=command[95:64], word3={errors[11:0] @[11:0], fsm_state[12:0] @[24:12], timestamp[6:0] @[31:25]} where errors are the mhdma_system.errors mhdma-clock bits [11:0] (the [13:12] cfg-clock overflow bits are not captured) and fsm_state packs {fsm_formatter[2:0], fsm_cem[1:0], fsm_notify_rx[1:0], fsm_burst[1:0], fsm_read_req[1:0], fsm_notify[1:0]}. Read 4*(valid entries) words; re-arming via trace_ctrl resets the read pointer.",
           "owner": "Kernel",
           "read_access": "ReadNotify",
           "write_access": "None",
