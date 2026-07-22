@@ -41,7 +41,8 @@ package hpu_regif_core_mhdma_2in3_pkg;
   localparam int MHDMA_SYSTEM_HPU_ID_6_OFS = 'h50030;
   localparam int MHDMA_SYSTEM_HPU_ID_7_OFS = 'h50034;
   typedef struct packed {
-    logic [(25-1):0] padding_7;
+    logic [(24-1):0] padding_8;
+    logic [(1-1):0] wrapped;
     logic [(6-1):0] wptr;
     logic [(1-1):0] frozen;
    } mhdma_system_trace_ctrl_t;

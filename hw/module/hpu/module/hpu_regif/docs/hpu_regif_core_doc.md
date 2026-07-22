@@ -17,7 +17,7 @@ MHDMA register interface. Accessed by RPU for DMA command submission, completion
 **Offset**: 0x0
 **Range**: 0x60000
 **Word Size (b)**: 32
-**External Packages**: "axi_if_shell_axil_pkg.sv","axi_if_common_param_pkg.sv"
+**External Packages**: "axi_if_common_param_pkg.sv","axi_if_shell_axil_pkg.sv"
 
 
 ---
@@ -4050,7 +4050,7 @@ Below is a summary of all the registers in the current section mhdma_system:
 | [hpu_id_5](#register-mhdma-systemhpu-id-5) | 0x5002c | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
 | [hpu_id_6](#register-mhdma-systemhpu-id-6) | 0x50030 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
 | [hpu_id_7](#register-mhdma-systemhpu-id-7) | 0x50034 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [trace_ctrl](#register-mhdma-systemtrace-ctrl) | 0x50038 | RW |  Packet-trace control + status. WRITE (any value, WriteNotify) flushes the trace buffer and re-arms circular capture; on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data. The buffer is read as a full circular ring: read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr). |
+| [trace_ctrl](#register-mhdma-systemtrace-ctrl) | 0x50038 | RW |  Packet-trace control + status. WRITE (any value, WriteNotify) flushes the trace buffer and re-arms circular capture; on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data (reads while not frozen return 0 and do not advance). Clear the error condition (read mhdma_system.errors) BEFORE re-arming: re-arm does not clear a still-asserted sticky error, so the buffer will immediately re-trigger and re-freeze if you arm with an error still live. Read the buffer per the wrapped flag: if wrapped=1 the ring is full, read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr); if wrapped=0 only entries [0 .. wptr-1] are valid (fewer than TRACE_DEPTH headers captured this session), read those in order and do not rotate. |
 | [trace_data](#register-mhdma-systemtrace-data) | 0x5003c | R. |  Packet-trace data window (ReadNotify). Each read returns the next 32-bit word of the frozen trace and advances the read pointer. Entries are 4 words each: word0=command[31:0], word1=command[63:32], word2=command[95:64], word3={errors[11:0] @[11:0], fsm_state[12:0] @[24:12], timestamp[6:0] @[31:25]} where errors are the mhdma_system.errors mhdma-clock bits [11:0] (the [13:12] cfg-clock overflow bits are not captured) and fsm_state packs {fsm_formatter[2:0], fsm_cem[1:0], fsm_notify_rx[1:0], fsm_burst[1:0], fsm_read_req[1:0], fsm_notify[1:0]}. Read 4*(valid entries) words; re-arming via trace_ctrl resets the read pointer. |
 
 
@@ -4305,7 +4305,7 @@ Register retry_max contains following Sub-fields:
 
 ### Register mhdma-system.trace-ctrl
 
-- **Description**: Packet-trace control + status. WRITE (any value, WriteNotify) flushes the trace buffer and re-arms circular capture; on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data. The buffer is read as a full circular ring: read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr).
+- **Description**: Packet-trace control + status. WRITE (any value, WriteNotify) flushes the trace buffer and re-arms circular capture; on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data (reads while not frozen return 0 and do not advance). Clear the error condition (read mhdma_system.errors) BEFORE re-arming: re-arm does not clear a still-asserted sticky error, so the buffer will immediately re-trigger and re-freeze if you arm with an error still live. Read the buffer per the wrapped flag: if wrapped=1 the ring is full, read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr); if wrapped=0 only entries [0 .. wptr-1] are valid (fewer than TRACE_DEPTH headers captured this session), read those in order and do not rotate.
 - **Owner**: Kernel
 - **Read Access**: Read
 - **Write Access**: WriteNotify
@@ -4320,7 +4320,8 @@ Register trace_ctrl contains following Sub-fields:
 | Field Name | Offset_b | Size_b | Default      | Description   |
 |-----------:|:--------:|:------:|:------------:|:--------------|
 | frozen      | 0 | 1 |0| An error stopped capture; the buffer is frozen and ready to read |
-| wptr      | 1 | 6 |0| Write pointer captured at freeze (= oldest entry index; rotate the ring by this to order oldest->newest) |
+| wptr      | 1 | 6 |0| Write pointer captured at freeze (= oldest entry index; rotate the ring by this to order oldest->newest when wrapped=1) |
+| wrapped      | 7 | 1 |0| Ring wrapped since last re-arm: 1 = all TRACE_DEPTH entries valid (rotate by wptr); 0 = only entries [0 .. wptr-1] valid (partial fill, no rotation). Re-arm does not clear the RAM, so slots beyond a partial fill hold stale prior-session data |
 
 
 

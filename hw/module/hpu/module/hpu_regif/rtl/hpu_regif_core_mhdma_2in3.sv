@@ -30,8 +30,8 @@
 //      : Value provided by the RTL. The host can read it with notify. The write data is processed by the RTL.
 // ============================================================================================== //
 module hpu_regif_core_mhdma_2in3
-import axi_if_common_param_pkg::*;
 import axi_if_shell_axil_pkg::*;
+import axi_if_common_param_pkg::*;
 import hpu_regif_core_mhdma_2in3_pkg::*;
 #()(
   input  logic                           clk,
@@ -450,6 +450,7 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
     mhdma_system_trace_ctrl_default = 'h0;
     mhdma_system_trace_ctrl_default.frozen = 'h0;
     mhdma_system_trace_ctrl_default.wptr = 'h0;
+    mhdma_system_trace_ctrl_default.wrapped = 'h0;
   end
 //-- Default mhdma_system_trace_data
   logic [REG_DATA_W-1:0]mhdma_system_trace_data_default;
