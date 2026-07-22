@@ -15,6 +15,7 @@ sw/bin/tv_hw/latest
 sw/bin/gtv/latest
 sw/bin/hw-hpu/latest
 sw/bin/tfhe-rs/latest
+sw/bin/hpu_sim/latest
 .ngt_*
 .ipcache
 .*

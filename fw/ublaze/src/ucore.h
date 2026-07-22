@@ -35,11 +35,11 @@
 // ============================================================================================= //
 #define UCORE_VERSION_MAJOR              (3)
 #define UCORE_VERSION_MINOR              (0)
-#define UCORE_VERSION_IOPCODE            (0xFE)
 
 #define DOP_LUT_ADDR ((size_t) XPAR_AXI_MP_BASEADDR)
 // Opcode is 8bit -> 256 words entry per blk_w
 #define DOP_LUT_RANGE ((size_t) 0x100)
+#define MAX_HPU_IN_CLUSTER 8
 #define SYNC_DOP_WORD 0xbc040000
 
 //Axi stream id

@@ -1958,19 +1958,6 @@ endtask
     check_dummy_reg();
 
     //===============================
-    // Check ucore version
-    //===============================
-    // push IOP to read UCORE Version
-    // works only with ublaze in simulation
-    iop_tmp_q.push_back(UCORE_VERSION_IOP);
-    iop_tmp_q.push_back(EMPTY_DST_IOP);
-    iop_tmp_q.push_back(EMPTY_SRC_IOP);
-    push_work(iop_tmp_q, work_q);
-    $display("%t > INFO: Pushed IOp to read ucore version", $time);
-    repeat(100) @(posedge clk);
-    pop_ack(work_q, iop_ack);
-
-    //===============================
     // Init phase
     //===============================
     // Configure
@@ -2030,14 +2017,14 @@ endtask
 
       for (int i=0; i<IOP_NB; i=i+1) begin
         string fn;
-        fn =  $sformatf("%s_%0d.hex", IOP_FILE_PREFIX, i);
+        fn =  $sformatf("%s_iid%0d.hex", IOP_FILE_PREFIX, i+1);
         read_op(fn, iop_q[i]);
       end
 
       // Load Dops in queues
       for (int i=0; i<DOP_NB; i=i+1) begin
         string fn;
-        fn =  $sformatf("%s_%02x.hex", DOP_FILE_PREFIX, DOP_LIST[i]);
+        fn =  $sformatf("%s_executed_%02x.hex", DOP_FILE_PREFIX, DOP_LIST[i]);
         read_op(fn, dop_q[i]);
       end
 
