@@ -105,6 +105,7 @@ module mhdma_bridge
   input  logic                                    trace_arm,
   output logic                                    trace_frozen,
   output logic [$clog2(TRACE_DEPTH)-1:0]          trace_wptr,
+  output logic                                    trace_wrapped,
   // QSFP system interface ----------------------------------------------------
   // == TX
   output logic [MRMAC_AXIS_W-1:0]                 qsfp_tx_tdata,
@@ -434,7 +435,8 @@ module mhdma_bridge
     .trace_rd_en                 (trace_rd_en                                 ),
     .trace_rd_data               (trace_rd_data                               ),
     .trace_frozen                (trace_frozen                                ),
-    .trace_wptr                  (trace_wptr                                  )
+    .trace_wptr                  (trace_wptr                                  ),
+    .trace_wrapped               (trace_wrapped                               )
   );
 
   // the formatter gathers commands from master & slave module and sends it to axis

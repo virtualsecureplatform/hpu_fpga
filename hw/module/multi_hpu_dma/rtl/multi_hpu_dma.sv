@@ -175,10 +175,10 @@ module multi_hpu_dma
   logic [REG_DATA_W-1:0]            trace_rd_data; // current 32-bit trace word from the bridge
   logic                             trace_frozen;
   logic [$clog2(TRACE_DEPTH)-1:0]   trace_wptr;
+  logic                             trace_wrapped;
   logic [REG_DATA_W-1:0]            trace_status;  // packed status returned when reading trace_ctrl
 
-  // trace_ctrl read layout: [0] frozen, [1 +: clog2(DEPTH)] write pointer, rest reserved
-  assign trace_status = {{(REG_DATA_W-1-$clog2(TRACE_DEPTH)){1'b0}}, trace_wptr, trace_frozen};
+  assign trace_status = {{(REG_DATA_W-2-$clog2(TRACE_DEPTH)){1'b0}}, trace_wrapped, trace_wptr, trace_frozen};
 
   // Transceivers ---------------------------------------------------------------------------------
   assign line_sel             = r_system_lane[1:0];
@@ -638,6 +638,7 @@ module multi_hpu_dma
     .trace_rd_data                  (trace_rd_data                                                ),
     .trace_frozen                   (trace_frozen                                                 ),
     .trace_wptr                     (trace_wptr                                                   ),
+    .trace_wrapped                  (trace_wrapped                                                ),
     // statistics ---------------------------------------------------------------------------------
     .stat_to_cfg                    (stat_mhdma                                                   ),
     .stat_rst                       (stat_rst_mhdma                                               ),
