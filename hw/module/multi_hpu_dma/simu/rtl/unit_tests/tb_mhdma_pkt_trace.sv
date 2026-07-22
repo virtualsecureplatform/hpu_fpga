@@ -19,6 +19,12 @@
 //   > sustained_traffic   : error mid-stream while pushing -> exactly TRACE_TAIL tail, half/half
 //   > reset_underfill     : reset, then empty / under-filled ring
 //   > rearm_sticky_error  : re-arm with error still asserted -> immediate re-trigger
+//   > coincident_error    : error_detected on the same edge as a header push (real overflow trigger)
+//   > full_throughput     : header_valid held high on consecutive cycles -> one write/cycle, exact tail
+//   > wrapped_boundary    : exactly DEPTH-1 (partial, wrapped=0) vs DEPTH (full, wrapped=1) writes
+//
+// Every freeze point also checks trace_wrapped (ring-filled flag): it must be 1 iff >= TRACE_DEPTH
+// headers were captured this session (rotate-by-wptr full ring) and 0 for a partial fill.
 //
 // Simulation timeout: SIM_TIMEOUT.
 // ==============================================================================================
@@ -52,6 +58,11 @@ module tb_mhdma_pkt_trace;
 
   // Enough cfg cycles to cover the timeout backstop (1024 mhdma cycles) plus CDC/publish latency.
   localparam int FREEZE_WAIT_CFG = (TRACE_TAIL_TIMEOUT * CLK_HALF_PERIOD_MHDMA) / CLK_HALF_PERIOD_CFG + 200;
+  // The timeout expressed in cfg cycles (~256 at the 4:1 ratio). A window safely BELOW it: if the
+  // buffer freezes within this window after a trigger with no post-traffic, the timeout terminal
+  // compare fired too early (premature saturation / off-by-one). Deterministic, no model needed.
+  localparam int TIMEOUT_CFG        = (TRACE_TAIL_TIMEOUT * CLK_HALF_PERIOD_MHDMA) / CLK_HALF_PERIOD_CFG;
+  localparam int TIMEOUT_EARLY_WIN  = (TIMEOUT_CFG * 3) / 4;   // ~3/4 of the timeout, safely early
 
 // ============================================================================================== --
 // clocks
@@ -115,12 +126,13 @@ module tb_mhdma_pkt_trace;
   bit error;
   bit error_frozen;   // freeze / de-glitch / no-false-freeze
   bit error_wptr;     // write pointer at freeze
+  bit error_wrapped;  // ring-filled (wrapped) flag at freeze
   bit error_content;  // read-back header / aux mismatch
   bit error_order;    // oldest->newest ordering (rotation by wptr)
   bit error_ts;       // timestamp delta / wrap
   bit error_tail;     // tail length (half/half)
 
-  assign error = error_frozen | error_wptr | error_content | error_order | error_ts | error_tail;
+  assign error = error_frozen | error_wptr | error_wrapped | error_content | error_order | error_ts | error_tail;
 
   always_ff @(posedge clk_mhdma_cfg)
     if (error) begin
@@ -141,6 +153,7 @@ module tb_mhdma_pkt_trace;
   logic [REG_DATA_W-1:0]  trace_rd_data;
   logic                   trace_frozen;
   logic [TRACE_AW-1:0]    trace_wptr;
+  logic                   trace_wrapped;
 
   mhdma_pkt_trace dut (
     // capture side (clk_mhdma)
@@ -157,7 +170,8 @@ module tb_mhdma_pkt_trace;
     .trace_rd_en      (trace_rd_en     ),
     .trace_rd_data    (trace_rd_data   ),
     .trace_frozen     (trace_frozen    ),
-    .trace_wptr       (trace_wptr      )
+    .trace_wptr       (trace_wptr      ),
+    .trace_wrapped    (trace_wrapped   )
   );
 
 // ============================================================================================== --
@@ -283,6 +297,53 @@ module tb_mhdma_pkt_trace;
 
   task automatic push_n(input int n, input int extra_gap = 0);
     for (int i = 0; i < n; i++) push_one(extra_gap);
+  endtask
+
+  // Drive one header beat with error_detected asserted on the SAME clk_mhdma edge as the push (the
+  // real-world trigger: e.g. error_fifo_rx_ovf is set by the very header push that overflows). The
+  // RTL registers trace_triggered_q, so this coincident header is a pre-trigger ("before") entry and
+  // the tail starts the next cycle. Model: record with the trigger not yet sticky, THEN set it.
+  task automatic push_one_with_error();
+    command_t                header;
+    logic [TRACE_AUX_W-1:0]  aux;
+    begin
+      header = rand_header(push_idx);
+      aux    = rand_aux();
+
+      @(posedge clk_mhdma);
+      header_data    = header;
+      trace_aux      = aux;
+      header_valid   = 1'b1;
+      error_detected = 1'b1;             // error coincident with the push
+      gm_record(header, aux, tb_cyc);    // recorded as a "before" entry (trigger not yet sticky)
+      gm_trigger();                      // trigger becomes effective from the next beat
+      @(posedge clk_mhdma);
+      header_valid   = 1'b0;
+
+      push_idx = push_idx + 1;
+    end
+  endtask
+
+  // Drive n headers on n CONSECUTIVE clk_mhdma cycles (header_valid held high, new data each cycle):
+  // full-throughput capture, one write per cycle. Exercises the per-cycle wptr increment and tail
+  // decrement that the spaced push_one never hits.
+  task automatic push_burst(input int n);
+    command_t                header;
+    logic [TRACE_AUX_W-1:0]  aux;
+    begin
+      for (int i = 0; i < n; i++) begin
+        header = rand_header(push_idx);
+        aux    = rand_aux();
+        @(posedge clk_mhdma);
+        header_data  = header;
+        trace_aux    = aux;
+        header_valid = 1'b1;
+        gm_record(header, aux, tb_cyc);
+        push_idx = push_idx + 1;
+      end
+      @(posedge clk_mhdma);
+      header_valid = 1'b0;
+    end
   endtask
 
   // Assert / clear error_detected (level). Set the model trigger in the gap.
@@ -441,6 +502,16 @@ module tb_mhdma_pkt_trace;
     end
   endtask
 
+  // Check trace_wrapped (ring-filled flag) against the model. wrapped == 1 iff the ring wrapped at
+  // least once this session (>= TRACE_DEPTH accepted writes); pass the model's own count so the
+  // expectation tracks the randomized traffic. Must be read while frozen (published only then).
+  task automatic check_wrapped(input int scen_id, input bit exp);
+    assert (trace_wrapped == exp) else begin
+      $display("[ERROR:%0d]: wrapped=%0b expected %0b (gm_count=%0d)", scen_id, trace_wrapped, exp, gm_count);
+      error_wrapped = 1'b1;
+    end
+  endtask
+
 // ============================================================================================== --
 // Scenarios
 // ============================================================================================== --
@@ -485,10 +556,14 @@ module tb_mhdma_pkt_trace;
 
       // error while traffic is stopped: the "after" half never fills -> timeout forces freeze
       assert_error();
+      // timeout backstop must NOT fire early: no freeze for a window well below TRACE_TAIL_TIMEOUT
+      // (catches a premature terminal compare / early saturation of trace_timeout_cnt).
+      check_not_frozen(scenario_id, TIMEOUT_EARLY_WIN);
       wait_frozen(scenario_id, FREEZE_WAIT_CFG);
       gm_force_frozen();
 
       check_wptr(scenario_id, gm_count);          // no post-error writes -> wptr == n
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH); // partial ring -> wrapped == 0
       read_and_check(scenario_id, gm_count, 1'b0);
 
       // pushing after freeze must not change anything
@@ -527,6 +602,7 @@ module tb_mhdma_pkt_trace;
       wait_frozen(scenario_id, FREEZE_WAIT_CFG); // no more traffic -> timeout backstop fires
       gm_force_frozen();
       check_wptr(scenario_id, gm_wptr);          // also catches any premature (mid-burst) freeze
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH);
       read_and_check(scenario_id, gm_count, gm_count >= TRACE_DEPTH);
       clear_error();
 
@@ -541,6 +617,7 @@ module tb_mhdma_pkt_trace;
       wait_frozen(scenario_id, FREEZE_WAIT_CFG);
       gm_force_frozen();
       check_wptr(scenario_id, gm_wptr);
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH);
       read_and_check(scenario_id, gm_count, gm_count >= TRACE_DEPTH);
       clear_error();
 
@@ -575,6 +652,7 @@ module tb_mhdma_pkt_trace;
 
         // full buffer -> exactly DEPTH valid entries, rotation ordering applies
         check_wptr(scenario_id, gm_wptr);
+        check_wrapped(scenario_id, gm_count >= TRACE_DEPTH); // pre > DEPTH -> wrapped == 1
         read_and_check(scenario_id, TRACE_DEPTH, 1'b1);
 
         clear_error();
@@ -617,6 +695,7 @@ module tb_mhdma_pkt_trace;
       end
 
       check_wptr(scenario_id, gm_wptr);
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH); // full ring -> wrapped == 1
       read_and_check(scenario_id, TRACE_DEPTH, 1'b1);
       clear_error();
       scenario_end(scenario_id, clk_mhdma_cfg);
@@ -644,6 +723,7 @@ module tb_mhdma_pkt_trace;
       wait_frozen(scenario_id, FREEZE_WAIT_CFG);
       gm_force_frozen();
       check_wptr(scenario_id, 0);
+      check_wrapped(scenario_id, 1'b0);           // zero writes -> not wrapped
       clear_error();
 
       // (b) arm, push M (< DEPTH) then error -> wptr == M, only M entries valid
@@ -654,6 +734,7 @@ module tb_mhdma_pkt_trace;
       wait_frozen(scenario_id, FREEZE_WAIT_CFG);
       gm_force_frozen();
       check_wptr(scenario_id, m);
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH); // m < DEPTH -> not wrapped
       read_and_check(scenario_id, m, 1'b0);
       clear_error();
 
@@ -674,6 +755,7 @@ module tb_mhdma_pkt_trace;
       assert_error();
       wait_frozen(scenario_id, FREEZE_WAIT_CFG);
       gm_force_frozen();
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH); // < DEPTH pushed -> not wrapped
 
       // re-arm WITHOUT clearing the error. error_detected is still high -> must re-trigger and,
       // with no new traffic, re-freeze via the timeout backstop.
@@ -686,11 +768,109 @@ module tb_mhdma_pkt_trace;
         $display("[ERROR:%0d]: sticky error did not re-freeze after re-arm", scenario_id);
         error_frozen = 1'b1;
       end
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH); // re-arm cleared wrapped; no new traffic -> 0
 
       clear_error();
       // clean re-arm now that the error is gone: must stay unfrozen
       do_arm();
       check_not_frozen(scenario_id, 60);
+
+      scenario_end(scenario_id, clk_mhdma_cfg);
+    end
+  endtask
+
+  // -------------------------------------------------------------------------
+  // Scenario : error_detected coincident with a header push (same clk_mhdma edge) - the most likely
+  //            real trigger (an overflowing push sets the error). The coincident header must be a
+  //            pre-trigger entry, and the tail must still be exactly TRACE_TAIL.
+  // -------------------------------------------------------------------------
+  task automatic run_scenario_coincident_error();
+    int pre, cnt_before, cnt_after;
+    begin
+      scenario_start(scenario_id, "error coincident with a header push (same edge)");
+      pre = TRACE_DEPTH + $urandom_range(0, 20); // full ring before the trigger
+      do_arm();
+      push_n(pre, $urandom_range(0, 3));
+      cnt_before = gm_count;
+      push_one_with_error();                                 // error on the same edge as this push
+      push_n(TRACE_TAIL + $urandom_range(4, 12), $urandom_range(0, 2)); // fill the tail
+      wait_frozen(scenario_id, FREEZE_WAIT_CFG);
+
+      // coincident push is a "before" entry, so post-trigger writes = TRACE_TAIL exactly
+      cnt_after = gm_count - cnt_before - 1; // -1 for the coincident (before) entry
+      assert (cnt_after == TRACE_TAIL) else begin
+        $display("[ERROR:%0d]: coincident-trigger tail=%0d expected %0d", scenario_id, cnt_after, TRACE_TAIL);
+        error_tail = 1'b1;
+      end
+      check_wptr(scenario_id, gm_wptr);
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH);
+      read_and_check(scenario_id, TRACE_DEPTH, 1'b1);
+      clear_error();
+      scenario_end(scenario_id, clk_mhdma_cfg);
+    end
+  endtask
+
+  // -------------------------------------------------------------------------
+  // Scenario : full-throughput capture - header_valid held high on consecutive clk_mhdma cycles
+  //            (one write/cycle) before and across the trigger. The tail must still be exactly
+  //            TRACE_TAIL at full rate (per-cycle wptr increment + tail decrement).
+  // -------------------------------------------------------------------------
+  task automatic run_scenario_full_throughput();
+    int pre, cnt_before, cnt_after;
+    begin
+      scenario_start(scenario_id, "full-throughput: back-to-back header_valid, exact tail");
+      pre = TRACE_DEPTH + $urandom_range(0, 20);
+      do_arm();
+      push_burst(pre);                                // fill the ring at one write per cycle
+      cnt_before = gm_count;
+      assert_error();                                 // trigger in the gap after the burst
+      push_burst(TRACE_TAIL + $urandom_range(4, 12)); // tail at full rate; extra beats must be dropped
+      wait_frozen(scenario_id, FREEZE_WAIT_CFG);
+
+      cnt_after = gm_count - cnt_before;
+      assert (cnt_after == TRACE_TAIL) else begin
+        $display("[ERROR:%0d]: full-rate tail=%0d expected %0d", scenario_id, cnt_after, TRACE_TAIL);
+        error_tail = 1'b1;
+      end
+      check_wptr(scenario_id, gm_wptr);
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH);
+      read_and_check(scenario_id, TRACE_DEPTH, 1'b1);
+      clear_error();
+      scenario_end(scenario_id, clk_mhdma_cfg);
+    end
+  endtask
+
+  // -------------------------------------------------------------------------
+  // Scenario : wrapped-flag boundary. Exactly DEPTH-1 writes (partial, wrapped=0)
+  //            vs exactly DEPTH writes (ring just filled by the DEPTH-th write,
+  //            wrapped=1). Traffic stops before the error so the freeze is via the
+  //            timeout backstop and the accepted write count is exact.
+  // -------------------------------------------------------------------------
+  task automatic run_scenario_wrapped_boundary();
+    begin
+      scenario_start(scenario_id, "wrapped boundary: DEPTH-1 (partial) vs DEPTH (full)");
+
+      // (a) exactly DEPTH-1 writes -> ring one short of full -> wrapped == 0
+      do_arm();
+      push_n(TRACE_DEPTH - 1, $urandom_range(0, 3));
+      assert_error();
+      wait_frozen(scenario_id, FREEZE_WAIT_CFG);
+      gm_force_frozen();
+      check_wptr(scenario_id, TRACE_DEPTH - 1);
+      check_wrapped(scenario_id, 1'b0);
+      read_and_check(scenario_id, gm_count, 1'b0);
+      clear_error();
+
+      // (b) exactly DEPTH writes -> the DEPTH-th write wraps wptr to 0 -> wrapped == 1
+      do_arm();
+      push_n(TRACE_DEPTH, $urandom_range(0, 3));
+      assert_error();
+      wait_frozen(scenario_id, FREEZE_WAIT_CFG);
+      gm_force_frozen();
+      check_wptr(scenario_id, 0);
+      check_wrapped(scenario_id, 1'b1);
+      read_and_check(scenario_id, TRACE_DEPTH, 1'b1);
+      clear_error();
 
       scenario_end(scenario_id, clk_mhdma_cfg);
     end
@@ -719,6 +899,9 @@ module tb_mhdma_pkt_trace;
     run_scenario_sustained_traffic();
     run_scenario_reset_underfill();
     run_scenario_rearm_sticky_error();
+    run_scenario_coincident_error();
+    run_scenario_full_throughput();
+    run_scenario_wrapped_boundary();
 
     repeat (20) @(posedge clk_mhdma_cfg);
     end_of_test = 1'b1;

@@ -46,6 +46,11 @@ module tb_mhdma_errors;
 
   localparam int MEM_SIM_SIZE = 8;
 
+  // Trace geometry (mirror of the DUT): 32-bit words per captured entry.
+  localparam int TB_TRACE_TS_W = REG_DATA_W - TRACE_AUX_W;
+  localparam int TB_TRACE_W    = $bits(command_t) + TRACE_AUX_W + TB_TRACE_TS_W;
+  localparam int TRACE_WORDS   = TB_TRACE_W / REG_DATA_W;
+
 // ============================================================================================== --
 // clock, reset
 // ============================================================================================== --
@@ -881,6 +886,32 @@ module tb_mhdma_errors;
     end
   endtask
 
+  // Read back `n` freshly-frozen trace entries (read pointer starts at 0 after freeze/re-arm) and
+  // check each decoded header's src_addr/iop_id against the values we drove into the notify packets.
+  // This validates the REAL decoder->trace tap (decoder_header_data/_valid) end-to-end - the unit TB
+  // drives header_data synthetically, so this is the only place the actual capture path is checked.
+  task automatic check_trace_content(input int n,
+                                     input logic [SRC_ADDR_W-1:0] exp_src [TRACE_DEPTH],
+                                     input logic [IOP_ID_W-1:0]   exp_iop [TRACE_DEPTH]);
+    logic [REG_DATA_W-1:0] ew [TRACE_WORDS];
+    command_t              rb;
+    begin
+      for (int e = 0; e < n; e++) begin
+        for (int k = 0; k < TRACE_WORDS; k++)
+          maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, ew[k]);
+        rb = {ew[2], ew[1], ew[0]}; // command_t = lower 96 bits (3 words); word3 = {ts,fsm,errors}
+        assert (rb.src_addr == exp_src[e]) else begin
+          $display("%t > [ERROR] trace entry %0d src_addr=0x%04x expected 0x%04x", $time, e, rb.src_addr, exp_src[e]);
+          error_unexpected = 1'b1;
+        end
+        assert (rb.iop_id == exp_iop[e]) else begin
+          $display("%t > [ERROR] trace entry %0d iop_id=0x%02x expected 0x%02x", $time, e, rb.iop_id, exp_iop[e]);
+          error_unexpected = 1'b1;
+        end
+      end
+    end
+  endtask
+
   // Packet-trace debug scenario:
   //   arm -> capture BATCH1 received headers -> trigger error #1 (error_id) -> verify freeze ->
   //   read the trace FIFO twice -> clear the error (trace stays frozen, sticky) -> re-arm ->
@@ -896,9 +927,9 @@ module tb_mhdma_errors;
     int                    BATCH1;
     int                    BATCH2;
     logic [REG_DATA_W-1:0] status;
-    logic [REG_DATA_W-1:0] tw0, tw1;   // words read after error #1
-    logic [REG_DATA_W-1:0] tw2, tw3;   // words read after error #2
     logic [5:0]            wptr1, wptr2; // trace_ctrl[6:1] (6-bit write pointer at depth 64)
+    logic [SRC_ADDR_W-1:0] sent_src [TRACE_DEPTH]; // per-packet src_addr we drove (content-check expectation)
+    logic [IOP_ID_W-1:0]   sent_iop [TRACE_DEPTH]; // per-packet iop_id we drove
     begin
       BATCH1 = 5;
       BATCH2 = 3;
@@ -910,6 +941,7 @@ module tb_mhdma_errors;
       // --- Populate the trace with BATCH1 received notify headers ---
       for (int i = 0; i < BATCH1; i++) begin
         iop_id = $urandom(); src_addr = $urandom();
+        sent_src[i] = src_addr; sent_iop[i] = iop_id; // expectation for the content check
         send_notify_packet(qsfp_rx_vif[0], dst_mac_addr, src_mac_addr, dst_hpu_id, iop_id, src_addr);
         repeat(10) @(posedge clk_mhdma);
       end
@@ -933,11 +965,14 @@ module tb_mhdma_errors;
         $display("%t > [ERROR] trace wptr=%0d after error #1, expected %0d", $time, wptr1, BATCH1);
         error_unexpected = 1'b1;
       end
+      // BATCH1 (< DEPTH) headers captured -> partial ring, wrapped must be 0
+      assert (~status[7]) else begin
+        $display("%t > [ERROR] trace wrapped=1 after error #1 (only %0d < DEPTH captured)", $time, BATCH1);
+        error_unexpected = 1'b1;
+      end
 
-      // --- Read the trace FIFO twice ---
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, tw0);
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, tw1);
-      $display("%t > [TRACE] error #1 read: word0=0x%08x word1=0x%08x", $time, tw0, tw1);
+      // --- Read back the captured entries and check content vs the real decoder->trace tap ---
+      check_trace_content(BATCH1, sent_src, sent_iop);
 
       // --- Clear the error (restore one-hot). Trace must stay frozen (sticky). ---
       maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b0, 3'b0, 4'h1, 24'hABCDE1});
@@ -961,6 +996,7 @@ module tb_mhdma_errors;
       // --- Capture BATCH2 (different count) then trigger error #2 ---
       for (int i = 0; i < BATCH2; i++) begin
         iop_id = $urandom(); src_addr = $urandom();
+        sent_src[i] = src_addr; sent_iop[i] = iop_id;
         send_notify_packet(qsfp_rx_vif[0], dst_mac_addr, src_mac_addr, dst_hpu_id, iop_id, src_addr);
         repeat(10) @(posedge clk_mhdma);
       end
@@ -984,12 +1020,15 @@ module tb_mhdma_errors;
                  $time, wptr2, BATCH2);
         error_unexpected = 1'b1;
       end
+      // re-arm reset wrapped; BATCH2 (< DEPTH) captured -> wrapped must be 0
+      assert (~status[7]) else begin
+        $display("%t > [ERROR] trace wrapped=1 after error #2 / re-arm (only %0d < DEPTH captured)", $time, BATCH2);
+        error_unexpected = 1'b1;
+      end
 
-      // --- Read the trace twice again (pointer reset -> reads from word0, and must not stall) ---
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, tw2);
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, tw3);
-      $display("%t > [TRACE] error #2 read: word0=0x%08x word1=0x%08x", $time, tw2, tw3);
-      $display("%t > [TRACE] re-arm cycle OK: trace re-armed, re-froze and reads completed without stall", $time);
+      // --- Read back BATCH2 (pointer reset -> reads from word0) and check content; also proves no stall ---
+      check_trace_content(BATCH2, sent_src, sent_iop);
+      $display("%t > [TRACE] re-arm cycle OK: trace re-armed, re-froze, content verified, reads completed without stall", $time);
 
       // --- Leave the trace clean: restore one-hot config and re-arm ---
       maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b0, 3'b0, 4'h1, 24'hABCDE1});
