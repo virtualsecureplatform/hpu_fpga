@@ -176,9 +176,15 @@ module multi_hpu_dma
   logic                             trace_frozen;
   logic [$clog2(TRACE_DEPTH)-1:0]   trace_wptr;
   logic                             trace_wrapped;
-  logic [REG_DATA_W-1:0]            trace_status;  // packed status returned when reading trace_ctrl
+  mhdma_system_trace_ctrl_t         trace_status;  // status returned when reading trace_ctrl
 
-  assign trace_status = {{(REG_DATA_W-2-$clog2(TRACE_DEPTH)){1'b0}}, trace_wrapped, trace_wptr, trace_frozen};
+  // Build the status from the generated regif struct (single source of truth for the bit layout).
+  always_comb begin
+    trace_status         = '0;             // reserved/padding bits
+    trace_status.frozen  = trace_frozen;
+    trace_status.wptr    = trace_wptr;
+    trace_status.wrapped = trace_wrapped;
+  end
 
   // Transceivers ---------------------------------------------------------------------------------
   assign line_sel             = r_system_lane[1:0];
