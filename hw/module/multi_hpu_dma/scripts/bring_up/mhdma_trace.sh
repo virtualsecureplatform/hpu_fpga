@@ -86,19 +86,21 @@ print_errors() {
 # COMMANDS
 # --------------------------------------------------------------------------------------------- #
 
-# Read trace_ctrl -> frozen (bit0) and wptr (bits[6:1]), plus the errors register.
+# Read trace_ctrl -> frozen (bit0), wptr (bits[6:1]), wrapped (bit7), plus the errors register.
 cmd_status() {
   local board=$1
-  local ctrl frozen wptr errbits
+  local ctrl frozen wptr wrapped errbits
   ctrl=$(reg_read_dec "$board" mhdma_system::trace_ctrl)
   frozen=$(extract_field "$ctrl" 0 1)
   wptr=$(extract_field "$ctrl" 1 6)
+  wrapped=$(extract_field "$ctrl" 7 1)
   errbits=$(reg_read_dec "$board" mhdma_system::errors)
 
   echo "=== MHDMA trace status (board $board) ==="
   printf "  trace_ctrl = 0x%08x\n" "$ctrl"
   printf "  frozen     = %d %s\n" "$frozen" "$([ "$frozen" -eq 1 ] && echo '(buffer FROZEN, ready to read)' || echo '(armed / capturing)')"
   printf "  wptr       = %d (oldest entry index at freeze)\n" "$wptr"
+  printf "  wrapped    = %d %s\n" "$wrapped" "$([ "$wrapped" -eq 1 ] && echo '(ring FULL: all entries valid, rotate by wptr)' || echo '(PARTIAL: only entries [0..wptr-1] valid, rest stale)')"
   printf "  errors     = 0x%04x\n" "$errbits"
   print_errors "$errbits" "    "
 }
@@ -128,18 +130,33 @@ cmd_arm() {
 # Read the whole frozen ring and decode it oldest->newest (rotated by wptr).
 cmd_dump() {
   local board=$1
-  local ctrl frozen wptr
+  local ctrl frozen wptr wrapped
   ctrl=$(reg_read_dec "$board" mhdma_system::trace_ctrl)
   frozen=$(extract_field "$ctrl" 0 1)
   wptr=$(extract_field "$ctrl" 1 6)
+  wrapped=$(extract_field "$ctrl" 7 1)
 
   if [ "$frozen" -ne 1 ]; then
     echo "[WARN] board $board: buffer is NOT frozen (frozen=0). Contents are still being overwritten;"
     echo "       dump only makes sense after a freeze. Use 'wait' to block until a fault freezes it."
   fi
-  echo "[INFO] board $board: dumping ring (wptr=$wptr -> oldest entry index)"
 
-  # Pop TOTAL_WORDS words; the read pointer auto-increments on every trace_data read.
+  # wrapped=1 : ring is full, TRACE_DEPTH valid entries, oldest at wptr (rotate).
+  # wrapped=0 : partial fill, only entries [0..wptr-1] valid (in order); the rest are stale
+  #             prior-session data and must NOT be shown.
+  local n_valid first
+  if [ "$wrapped" -eq 1 ]; then
+    n_valid=$TRACE_DEPTH
+    first=$wptr
+    echo "[INFO] board $board: ring FULL, dumping $n_valid entries (wptr=$wptr -> oldest)"
+  else
+    n_valid=$wptr
+    first=0
+    echo "[INFO] board $board: ring PARTIAL, dumping $n_valid valid entries [0..$((wptr - 1))] (rest stale, not shown)"
+  fi
+
+  # Pop TOTAL_WORDS words; the read pointer auto-increments on every trace_data read. We always pop
+  # the whole ring so words[] is indexed by absolute entry, then only decode the valid ones.
   local words=()
   local i
   for ((i = 0; i < TOTAL_WORDS; i++)); do
@@ -153,8 +170,8 @@ cmd_dump() {
   echo "  ord  entry | src_mac   hpu iop req md flag seq |  src_addr dst_addr | ts   fsm(fmt,cem,nrx,brst,rreq,ntfy) | errors"
   echo "  ---------------------------------------------------------------------------------------------------------------------"
   local ord e base w0 w1 w2 w3
-  for ((ord = 0; ord < TRACE_DEPTH; ord++)); do
-    e=$(( (wptr + ord) % TRACE_DEPTH ))
+  for ((ord = 0; ord < n_valid; ord++)); do
+    e=$(( (first + ord) % TRACE_DEPTH ))
     base=$(( e * WORDS_PER_ENTRY ))
     w0=${words[$base]}
     w1=${words[$((base + 1))]}
