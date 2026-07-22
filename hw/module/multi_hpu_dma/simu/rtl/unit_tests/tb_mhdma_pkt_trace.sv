@@ -131,8 +131,9 @@ module tb_mhdma_pkt_trace;
   bit error_order;    // oldest->newest ordering (rotation by wptr)
   bit error_ts;       // timestamp delta / wrap
   bit error_tail;     // tail length (half/half)
+  bit error_assert;   // concurrent SVA violation (white-box invariants)
 
-  assign error = error_frozen | error_wptr | error_wrapped | error_content | error_order | error_ts | error_tail;
+  assign error = error_frozen | error_wptr | error_wrapped | error_content | error_order | error_ts | error_tail | error_assert;
 
   always_ff @(posedge clk_mhdma_cfg)
     if (error) begin
@@ -173,6 +174,43 @@ module tb_mhdma_pkt_trace;
     .trace_wptr       (trace_wptr      ),
     .trace_wrapped    (trace_wrapped   )
   );
+
+// ============================================================================================== --
+// Concurrent assertions (white-box: reference DUT internals). A failure sets error_assert.
+// ============================================================================================== --
+  // Freeze margin: a write (trace_we) must be followed by >= TRACE_FREEZE_MARGIN quiet clk_mhdma
+  // cycles before trace_frozen_q rises, so wptr_q/wrapped_q are static before they cross to cfg.
+  assert property (@(posedge clk_mhdma) disable iff (~resetn_mhdma)
+    dut.trace_we |-> (~dut.trace_frozen_q)[*dut.TRACE_FREEZE_MARGIN])
+  else begin
+    $display("%t > [ASSERT] trace_we within the freeze margin of trace_frozen_q rising", $time);
+    error_assert = 1'b1;
+  end
+
+  // Static-while-frozen: the published pointer/flag must not change while frozen (the multi-bit wptr
+  // and the wrapped flag cross on plain synchronizers, so they must be quasi-static here).
+  assert property (@(posedge clk_mhdma) disable iff (~resetn_mhdma)
+    dut.trace_frozen_q |-> $stable(dut.trace_wptr_q) && $stable(dut.trace_wrapped_q))
+  else begin
+    $display("%t > [ASSERT] trace_wptr_q/trace_wrapped_q changed while trace_frozen_q high", $time);
+    error_assert = 1'b1;
+  end
+
+  // Read gating: while not frozen the readout returns a sentinel and the read pointer does not
+  // advance on a read strobe (prevents torn reads racing live capture).
+  assert property (@(posedge clk_mhdma_cfg) disable iff (~resetn_mhdma_cfg)
+    ~trace_frozen |-> (trace_rd_data == '0))
+  else begin
+    $display("%t > [ASSERT] trace_rd_data non-zero while not frozen", $time);
+    error_assert = 1'b1;
+  end
+
+  assert property (@(posedge clk_mhdma_cfg) disable iff (~resetn_mhdma_cfg)
+    (trace_rd_en & ~trace_frozen & ~trace_arm) |=> $stable(dut.trace_rd_ptr))
+  else begin
+    $display("%t > [ASSERT] trace_rd_ptr advanced on a read while not frozen", $time);
+    error_assert = 1'b1;
+  end
 
 // ============================================================================================== --
 // Free-running mhdma cycle counter (for wrap-aware timestamp delta checks)
