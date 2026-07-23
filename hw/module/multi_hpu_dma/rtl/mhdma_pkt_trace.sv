@@ -40,6 +40,7 @@ module mhdma_pkt_trace
   input  logic                     clk_mhdma_cfg,
   input  logic                     resetn_mhdma_cfg,
   input  logic                     trace_arm,      // 1-cycle strobe: flush + re-arm capture
+  input  logic                     trace_freeze,   // 1-cycle strobe: force freeze now (SW)
   input  logic                     trace_rd_en,    // 1-cycle strobe: pop one 32-bit trace word
   output logic [REG_DATA_W-1:0]    trace_rd_data,  // reading current trace word
   output logic                     trace_frozen,   // trace frozen by an error (synced)
@@ -97,8 +98,11 @@ module mhdma_pkt_trace
   logic trace_arm_mhdma_q;
   logic trace_rearm; // 1-cycle clk_mhdma re-arm pulse
 
+  // SRC_INPUT_REG=1: trace_arm/trace_freeze are combinational decodes (wr_en & frozen bit)
+  // The src-side flop filters the decode glitch before the synchronizer.
   xpm_cdc_single_wrapper #(
-    .CDC_SYNC_STAGES (TRACE_CDC_STAGES)
+    .CDC_SYNC_STAGES (TRACE_CDC_STAGES),
+    .SRC_INPUT_REG   (1               )
   ) cdc_trace_arm (
     .src_clk  (clk_mhdma_cfg  ),
     .dest_clk (clk_mhdma      ),
@@ -112,6 +116,32 @@ module mhdma_pkt_trace
   end
 
   assign trace_rearm = trace_arm_mhdma & ~trace_arm_mhdma_q;
+
+  // SW freeze strobe (cfg -> mhdma) --------------------------------------------------------------
+  logic trace_freeze_mhdma;
+  logic trace_freeze_mhdma_q;
+  logic trace_sw_freeze_q; // sticky: SW asked to freeze now (cleared on re-arm)
+
+  xpm_cdc_single_wrapper #(
+    .CDC_SYNC_STAGES (TRACE_CDC_STAGES),
+    .SRC_INPUT_REG   (1               )
+  ) cdc_trace_freeze (
+    .src_clk  (clk_mhdma_cfg     ),
+    .dest_clk (clk_mhdma         ),
+    .src_in   (trace_freeze      ),
+    .dest_out (trace_freeze_mhdma)
+  );
+
+  always_ff @(posedge clk_mhdma) begin
+    if (~resetn_mhdma) trace_freeze_mhdma_q <= 1'b0;
+    else               trace_freeze_mhdma_q <= trace_freeze_mhdma;
+  end
+
+  always_ff @(posedge clk_mhdma) begin
+    if      (~resetn_mhdma)                              trace_sw_freeze_q <= 1'b0;
+    else if (trace_rearm)                                trace_sw_freeze_q <= 1'b0;
+    else if (trace_freeze_mhdma & ~trace_freeze_mhdma_q) trace_sw_freeze_q <= 1'b1;
+  end
 
   // Compute timestamp (clk_mhdma) ------------------------------------------------------------------------
   logic [TRACE_TS_W-1:0] trace_timestamp;
@@ -127,9 +157,12 @@ module mhdma_pkt_trace
   // Write: capture window
   // =========================================================================================== //
   // capture-side (clk_mhdma) signals
-  logic                             trace_triggered_q; // an error has armed the tail (post-trigger) capture window
-  logic [TRACE_TAIL_AW-1:0]         trace_tail_cnt;    // remaining tail entries to capture
-  logic [TRACE_TAIL_TIMEOUT_AW-1:0] trace_timeout_cnt; // tail timeout counter (backstop)
+  logic                             trace_triggered_q;  // an error has armed the tail (post-trigger) capture window
+  logic [TRACE_TAIL_AW-1:0]         trace_tail_cnt;     // remaining tail entries to capture
+  logic [TRACE_TAIL_TIMEOUT_AW-1:0] trace_timeout_cnt;  // tail timeout counter (backstop)
+  logic                             trace_tail_filled;  // all tail entries captured after the trigger
+  logic                             trace_tail_timeout; // tail backstop timeout expired
+  logic                             trace_err_freeze;   // error-triggered freeze request
   logic                             trace_tail_done;
   logic [TRACE_FREEZE_CNT_W-1:0]    trace_freeze_cnt;  // cycles since trace_tail_done (freeze margin)
   logic                             trace_frozen_q;
@@ -151,6 +184,8 @@ module mhdma_pkt_trace
     else if (trace_triggered_q & trace_we & (trace_tail_cnt != 0)) trace_tail_cnt <= trace_tail_cnt - 1'b1;
   end
 
+  assign trace_tail_filled = (trace_tail_cnt == 0);
+
   // Tail timeout backstop (saturating).
   always_ff @(posedge clk_mhdma) begin
     if (~resetn_mhdma) begin
@@ -158,13 +193,16 @@ module mhdma_pkt_trace
     end else begin
       if (trace_rearm) begin
         trace_timeout_cnt <= '0;
-      end else if (trace_triggered_q & ~trace_frozen_q & (trace_timeout_cnt != TRACE_TAIL_TIMEOUT_AW'(TRACE_TAIL_TIMEOUT))) begin
+      end else if (trace_triggered_q & ~trace_frozen_q & ~trace_tail_timeout) begin
         trace_timeout_cnt <= trace_timeout_cnt + 1'b1;
       end
     end
   end
 
-  assign trace_tail_done = trace_triggered_q & ((trace_tail_cnt == 0) | (trace_timeout_cnt == TRACE_TAIL_TIMEOUT_AW'(TRACE_TAIL_TIMEOUT)));
+  assign trace_tail_timeout = (trace_timeout_cnt == TRACE_TAIL_TIMEOUT_AW'(TRACE_TAIL_TIMEOUT));
+
+  assign trace_err_freeze = trace_triggered_q & (trace_tail_filled | trace_tail_timeout);
+  assign trace_tail_done  = trace_sw_freeze_q | trace_err_freeze;
 
   // Freeze margin --------------------------------------------------------------------------------
   // we want to guarantee that trace_wptr_q / trace_wrapped_q are static for >= the synchronizer depth before being frozen.

@@ -5,8 +5,8 @@
   "offset": 0,
   "range": 393216,
   "ext_pkg": [
-    "axi_if_common_param_pkg",
-    "axi_if_shell_axil_pkg"
+    "axi_if_shell_axil_pkg",
+    "axi_if_common_param_pkg"
   ],
   "section": [
     {
@@ -4434,7 +4434,7 @@
         },
         {
           "name": "trace_ctrl",
-          "description": "Packet-trace control + status. WRITE (any value, WriteNotify) flushes the trace buffer and re-arms circular capture; on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data (reads while not frozen return 0 and do not advance). Clear the error condition (read mhdma_system.errors) BEFORE re-arming: re-arm does not clear a still-asserted sticky error, so the buffer will immediately re-trigger and re-freeze if you arm with an error still live. Read the buffer per the wrapped flag: if wrapped=1 the ring is full, read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr); if wrapped=0 only entries [0 .. wptr-1] are valid (fewer than TRACE_DEPTH headers captured this session), read those in order and do not rotate.",
+          "description": "Packet-trace control + status. WRITE (WriteNotify) is a command decoded from the frozen bit: write frozen=1 to freeze capture now (SW freeze, no tail, hold the ring for readback); write frozen=0 to flush the buffer and re-arm circular capture. Once armed, on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data (reads while not frozen return 0 and do not advance). Clear the error condition (read mhdma_system.errors) BEFORE re-arming: re-arm does not clear a still-asserted sticky error, so the buffer will immediately re-trigger and re-freeze if you arm with an error still live. Read the buffer per the wrapped flag: if wrapped=1 the ring is full, read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr); if wrapped=0 only entries [0 .. wptr-1] are valid (fewer than TRACE_DEPTH headers captured this session), read those in order and do not rotate.",
           "owner": "Kernel",
           "read_access": "Read",
           "write_access": "WriteNotify",

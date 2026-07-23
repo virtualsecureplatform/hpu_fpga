@@ -170,13 +170,16 @@ module multi_hpu_dma
   mhdma_error_all_t      mhdma_error_all;
 
   // Packet trace debug (clk_mhdma_cfg) ----------------------------------------------------------
-  logic                             trace_arm;     // trace_ctrl write strobe -> flush + re-arm
+  logic                             trace_ctrl_wr_en; // trace_ctrl WriteNotify strobe
+  logic                             trace_arm;     // write w/ frozen=0 -> flush + re-arm
+  logic                             trace_freeze;  // write w/ frozen=1 -> force freeze now
   logic                             trace_rd_en;   // trace_data read strobe  -> pop one word
   logic [REG_DATA_W-1:0]            trace_rd_data; // current 32-bit trace word from the bridge
   logic                             trace_frozen;
   logic [$clog2(TRACE_DEPTH)-1:0]   trace_wptr;
   logic                             trace_wrapped;
   mhdma_system_trace_ctrl_t         trace_status;  // status returned when reading trace_ctrl
+  mhdma_system_trace_ctrl_t         trace_wr;      // write-data view (r_axil_wdata) for the command
 
   // Build the status from the generated regif struct (single source of truth for the bit layout).
   always_comb begin
@@ -185,6 +188,10 @@ module multi_hpu_dma
     trace_status.wptr    = trace_wptr;
     trace_status.wrapped = trace_wrapped;
   end
+
+  // trace_ctrl WriteNotify command, decoded from the write data (.frozen bit): 1 = freeze, 0 = arm.
+  assign trace_freeze = trace_ctrl_wr_en &  trace_wr.frozen;
+  assign trace_arm    = trace_ctrl_wr_en & ~trace_wr.frozen;
 
   // Transceivers ---------------------------------------------------------------------------------
   assign line_sel             = r_system_lane[1:0];
@@ -277,7 +284,7 @@ module multi_hpu_dma
     .s_axil_rresp                                         (s_axil_mhdma_rresp                                    ),
     .s_axil_rvalid                                        (s_axil_mhdma_rvalid                                   ),
     .s_axil_rready                                        (s_axil_mhdma_rready                                   ),
-    .r_axil_wdata                                         (/* UNUSED */                                          ),
+    .r_axil_wdata                                         (trace_wr                                              ),
     // HPU ids ---------------------------------------------------------------------------------------------------
     .r_mhdma_system_hpu_id_0                              (r_regf_hpu_ids[0]                                     ),
     .r_mhdma_system_hpu_id_1                              (r_regf_hpu_ids[1]                                     ),
@@ -422,10 +429,10 @@ module multi_hpu_dma
     .r_mhdma_request_stat_nb_decoder_dropped              (/* UNUSED - register output, only _upd/_rd_en used */ ),
     .r_mhdma_request_stat_nb_decoder_dropped_upd          (stat_cfg.decoder.cnt_dropped                          ),
     .r_mhdma_request_stat_nb_decoder_dropped_rd_en        (stat_rst_cfg.decoder.cnt_dropped                      ),
-    // packet trace debug (trace_ctrl: read = status, write = re-arm strobe)
+    // packet trace debug (trace_ctrl: read = status, write = arm/freeze command)
     .r_mhdma_system_trace_ctrl                            (/* UNUSED - register output, only _upd/_wr_en used */ ),
     .r_mhdma_system_trace_ctrl_upd                        (trace_status                                          ),
-    .r_mhdma_system_trace_ctrl_wr_en                      (trace_arm                                             ),
+    .r_mhdma_system_trace_ctrl_wr_en                      (trace_ctrl_wr_en                                      ),
     .r_mhdma_system_trace_data                            (/* UNUSED - register output, only _upd/_rd_en used */ ),
     .r_mhdma_system_trace_data_upd                        (trace_rd_data                                         ),
     .r_mhdma_system_trace_data_rd_en                      (trace_rd_en                                           )
@@ -640,6 +647,7 @@ module multi_hpu_dma
     .interrupt_read_request         (interrupt_read_request                                       ),
     // packet trace debug -------------------------------------------------------------------------
     .trace_arm                      (trace_arm                                                    ),
+    .trace_freeze                   (trace_freeze                                                 ),
     .trace_rd_en                    (trace_rd_en                                                  ),
     .trace_rd_data                  (trace_rd_data                                                ),
     .trace_frozen                   (trace_frozen                                                 ),
