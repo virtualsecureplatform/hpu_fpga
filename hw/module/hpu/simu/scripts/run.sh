@@ -27,7 +27,6 @@ module="tb_hpu"
 ###################################################################################################
 # Default values
 ###################################################################################################
-SOFT_NAME=ucore_fw
 SOFT_TARGET=microblaze
 UCODE_DIR="default"
 
@@ -142,7 +141,6 @@ echo "-j                       : Regfile number of coefficients (default $REGF_C
 echo "-k                       : Regfile number of sequences (default $REGF_SEQ)"
 echo "-Q                       : PEA_ALU_NB (default : $PEA_ALU_NB)"
 echo "-n                       : Integer size (default $INT_SIZE)"
-echo "-x                       : software top file (default = \"${SOFT_NAME}\")"
 echo "-y                       : directory containing microcode files. (default = \"${UCODE_DIR}\")"
 echo "-a                       : default ucode IOP (default CUST_0)"
 echo "-M                       : ISC depth (default $ISC_DEPTH)"
@@ -167,7 +165,7 @@ echo "INFO> Parse command line"
 # Initialize your own variables here:
 NTT_RDX_CUT_S_TMP=()
 REGIF_FILE_S_TMP=()
-while getopts "Chzg:l:R:P:S:w:t:m:c:H:K:s:e:b:q:W:A:J:I:L:B:r:V:X:Y:Z:G:o:u:f:O:U:F:i:j:k:x:E:y:n:a:M:T:p:d:D:Q:" opt; do
+while getopts "Chzg:l:R:P:S:w:t:m:c:H:K:s:e:b:q:W:A:J:I:L:B:r:V:X:Y:Z:G:o:u:f:O:U:F:i:j:k:E:y:n:a:M:T:p:d:D:Q:" opt; do
   case "$opt" in
     h)
       usage
@@ -295,10 +293,6 @@ while getopts "Chzg:l:R:P:S:w:t:m:c:H:K:s:e:b:q:W:A:J:I:L:B:r:V:X:Y:Z:G:o:u:f:O:
       ;;
     n)
       INT_SIZE=$OPTARG
-      ;;
-    x)
-      echo "INFO> Embedded Software top file $OPTARG"
-      SOFT_NAME=$OPTARG
       ;;
     y)
       UCODE_DIR=`realpath $OPTARG`
@@ -582,7 +576,6 @@ if [ $GEN_STIMULI -eq 1 ] ; then
   rm -rf ${INPUT_DIR}/*
 fi
 TV_DIR=${INPUT_DIR}/test_vectors/latest
-SOFT_OUTPUT_DIR=${PROJECT_DIR}/hw/output/micro_code
 MEM_DIR=${PROJECT_DIR}/hw/memory_file/microblaze
 
 gtv_bin="${PROJECT_DIR}/sw/bin/gtv/latest/gtv"
@@ -592,22 +585,6 @@ twd_script="${PROJECT_DIR}/hw/module/hpu/simu/scripts/gen_twd.py"
 hpu_sim_cfg_script="${PROJECT_DIR}/sw/bin/tfhe-rs/config/gen_hpu_sim_config.py"
 hpu_cfg_script="${SCRIPT_DIR}/gen_hpu_config.py"
 ntt_gf64_script="${PROJECT_DIR}/sw/ntt/ntt_gf64.sage"
-
-###################################################################################################
-# Software compilation
-###################################################################################################
-if [ $GEN_STIMULI -eq 1 ] ; then
-  echo "###################################################"
-  echo "INFO> Compiling softprocessor code"
-  echo ""
-  make -C ${PROJECT_DIR}/fw/ublaze/src/ target=$SOFT_TARGET srcf=$SOFT_NAME
-
-  # Link
-  echo ""
-  echo "INFO> Link $SOFT_OUTPUT_DIR to ${INPUT_DIR}/micro_code"
-  if [ -d ${INPUT_DIR}/micro_code ] ; then rm -f ${INPUT_DIR}/micro_code ; fi
-  ln -s $SOFT_OUTPUT_DIR ${INPUT_DIR}/micro_code
-fi
 
 ###################################################################################################
 # Generate packages

@@ -10,27 +10,6 @@
             "is_include_file": true
         },
         {
-            "name": "hw/module/hpu/simu/rtl/tb_hpu_ucore_regif_pkg.sv",
-            "library": "work",
-            "env": ["simu"],
-            "target": ["all"],
-            "is_include_file": false
-        },
-        {
-            "name": "hw/module/hpu/simu/rtl/tb_hpu_ucore_regif.sv",
-            "library": "work",
-            "env": ["simu"],
-            "target": ["all"],
-            "is_include_file": false
-        },
-        {
-            "name": "hw/module/hpu/simu/rtl/tb_hpu_ucore.sv",
-            "library": "work",
-            "env": ["simu"],
-            "target": ["all"],
-            "is_include_file": false
-        },
-        {
             "name": "hw/module/hpu/simu/rtl/tb_hpu.sv",
             "library": "work",
             "env": ["simu"],
@@ -44,9 +23,7 @@
         "hw/simu_lib/simu_base",
         "hw/simu_lib/stream_lib",
         "hw/module/hpu/simu/gen",
-        "hw/module/hpu",
-        "hw/module/ucore",
-        "fw/gen/ublaze/simu"
+        "hw/module/hpu"
     ],
     "include_dir": []
 }

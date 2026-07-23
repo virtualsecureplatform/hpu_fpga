@@ -9,8 +9,6 @@
 `ifndef TB_HPU_MACRO
 `define TB_HPU_MACRO 1
 
-`define FPGA_V80 1
-
 //===============================
 // Work Queue register driver
 //===============================

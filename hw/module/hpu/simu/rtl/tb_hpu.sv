@@ -20,7 +20,6 @@ module tb_hpu;
   import param_tfhe_pkg::*;
   import top_common_param_pkg::*;
   import axi_if_common_param_pkg::*;
-  import axi_if_ucore_axi_pkg::*;
   import axi_if_trc_axi_pkg::*;
   import axi_if_ct_axi_pkg::*;
   import axi_if_glwe_axi_pkg::*;
@@ -32,13 +31,12 @@ module tb_hpu;
   import hpu_regif_core_cfg_3in3_pkg::*;
   import hpu_regif_core_prc_3in3_pkg::*;
   import file_handler_pkg::*;
+  import random_handler_pkg::*;
   import pep_ks_common_param_pkg::*;
   import pem_common_param_pkg::*; // CT alignment in mem
   import pep_common_param_pkg::*;
   import instruction_scheduler_pkg::*;
 
-  // Package used to modelize the communication between the host and the testbench ublaze
-  import tb_hpu_ucore_regif_pkg::*;
 // ============================================================================================== --
 // parameter / localparam
 // ============================================================================================== --
@@ -71,9 +69,6 @@ module tb_hpu;
   // => Reduce addr range for simulation time purpose
   localparam int    AXIL_ADD_W       = 18;
   localparam int    AXIL_DATA_W      = 32;
-  localparam int    AXI4_UCORE_ADD_W = 16;
-  localparam int    AXI4_UCORE_DATA_W= axi_if_ucore_axi_pkg::AXI4_DATA_W;
-  localparam int    AXI4_UCORE_ID_W  = axi_if_ucore_axi_pkg::AXI4_ID_W;
   localparam int    AXI4_TRC_ADD_W   = 20;
   localparam int    AXI4_TRC_DATA_W  = axi_if_trc_axi_pkg::AXI4_DATA_W;
   localparam int    AXI4_TRC_ID_W    = axi_if_trc_axi_pkg::AXI4_ID_W;
@@ -99,6 +94,9 @@ module tb_hpu;
   parameter int    IOP_INT_SIZE = 2;
   parameter int    MSG_W = PAYLOAD_BIT / 2;
   parameter int    DOP_NB = 1;
+  localparam int   ASM_ISC_HALT    = 2; // Chance to draw long delay over 255 values
+  localparam int   ASM_ISC_DELAY   = 4000; // Long delay on isc stream
+
   parameter int    GLWE_NB = 1;
   parameter int    BLWE_NB = 1;
   parameter int    OUT_BLWE_NB = 1;
@@ -107,12 +105,6 @@ module tb_hpu;
   parameter string GLWE_FILE_PREFIX = "input/ucode/glwe/glwe";
   parameter string BLWE_FILE_PREFIX = "input/ucode/blwe/input/blwe";
   parameter string OUT_BLWE_FILE_PREFIX = "input/ucode/blwe/output/blwe";
-  // ucore parameters
-  localparam int   EXPECTED_UCORE_VERSION_MAJOR = 3;
-  localparam int   EXPECTED_UCORE_VERSION_MINOR = 0;
-  localparam int   UCORE_VERSION_IOP            = 'h00FE0000;
-  localparam int   EMPTY_DST_IOP                = 'h60000000;
-  localparam int   EMPTY_SRC_IOP                = 'h20000000;
   // Index of the DOP/GLWE
   parameter [DOP_NB-1:0][7:0]    DOP_LIST     = {8'h00};
   parameter [GLWE_NB-1:0][7:0]   GLWE_LIST    = {8'h00};
@@ -274,77 +266,6 @@ logic [1:0][1:0]                     tb_axil_cfg_rresp;
 logic [1:0]                          tb_axil_cfg_rvalid;
 logic [1:0]                          tb_axil_cfg_rready;
 
-// AXI4 HBM_UCORE interface =======================================================================
-// Selector for internal axi_ram muxing
-logic [1:0]              axi4_ucore_select;
-// AXI4 HBM<->DUT interface
-/* Read channel */
-logic [AXI4_UCORE_ID_W-1:0]                   dut_axi4_ucore_arid;
-logic [AXI4_UCORE_ADD_W-1:0]                  dut_axi4_ucore_araddr;
-logic [7:0]                                   dut_axi4_ucore_arlen;
-logic [2:0]                                   dut_axi4_ucore_arsize;
-logic [1:0]                                   dut_axi4_ucore_arburst;
-logic                                         dut_axi4_ucore_arvalid;
-logic                                         dut_axi4_ucore_arready;
-logic [AXI4_UCORE_ID_W-1:0]                   dut_axi4_ucore_rid;
-logic [AXI4_UCORE_DATA_W-1:0]                 dut_axi4_ucore_rdata;
-logic [1:0]                                   dut_axi4_ucore_rresp;
-logic                                         dut_axi4_ucore_rlast;
-logic                                         dut_axi4_ucore_rvalid;
-logic                                         dut_axi4_ucore_rready;
-
-/*Write channel*/
-logic [AXI4_UCORE_ID_W-1:0]                   dut_axi4_ucore_awid;
-logic [AXI4_UCORE_ADD_W-1:0]                  dut_axi4_ucore_awaddr;
-logic [7:0]                                   dut_axi4_ucore_awlen;
-logic [2:0]                                   dut_axi4_ucore_awsize;
-logic [1:0]                                   dut_axi4_ucore_awburst;
-logic                                         dut_axi4_ucore_awvalid;
-logic                                         dut_axi4_ucore_awready;
-logic [AXI4_UCORE_DATA_W-1:0]                 dut_axi4_ucore_wdata;
-logic [axi_if_ucore_axi_pkg::AXI4_STRB_W-1:0] dut_axi4_ucore_wstrb;
-logic                                         dut_axi4_ucore_wlast;
-logic                                         dut_axi4_ucore_wvalid;
-logic                                         dut_axi4_ucore_wready;
-logic [AXI4_UCORE_ID_W-1:0]                   dut_axi4_ucore_bid;
-logic [1:0]                                   dut_axi4_ucore_bresp;
-logic                                         dut_axi4_ucore_bvalid;
-logic                                         dut_axi4_ucore_bready;
-// AXI4 HBM<->TB interface
-/* Read channel */
-logic [AXI4_UCORE_ID_W-1:0]                   tb_axi4_ucore_arid;
-logic [AXI4_UCORE_ADD_W-1:0]                  tb_axi4_ucore_araddr;
-logic [7:0]                                   tb_axi4_ucore_arlen;
-logic [2:0]                                   tb_axi4_ucore_arsize;
-logic [1:0]                                   tb_axi4_ucore_arburst;
-logic                                         tb_axi4_ucore_arvalid;
-logic                                         tb_axi4_ucore_arready;
-logic [AXI4_UCORE_ID_W-1:0]                   tb_axi4_ucore_rid;
-logic [AXI4_UCORE_DATA_W-1:0]                 tb_axi4_ucore_rdata;
-logic [1:0]                                   tb_axi4_ucore_rresp;
-logic                                         tb_axi4_ucore_rlast;
-logic                                         tb_axi4_ucore_rvalid;
-logic                                         tb_axi4_ucore_rready;
-
-/*Write channel*/
-logic [AXI4_UCORE_ID_W-1:0]                   tb_axi4_ucore_awid;
-logic [AXI4_UCORE_ADD_W-1:0]                  tb_axi4_ucore_awaddr;
-logic [7:0]                                   tb_axi4_ucore_awlen;
-logic [2:0]                                   tb_axi4_ucore_awsize;
-logic [1:0]                                   tb_axi4_ucore_awburst;
-logic                                         tb_axi4_ucore_awvalid;
-logic                                         tb_axi4_ucore_awready;
-logic [AXI4_UCORE_DATA_W-1:0]                 tb_axi4_ucore_wdata;
-logic [axi_if_ucore_axi_pkg::AXI4_STRB_W-1:0] tb_axi4_ucore_wstrb;
-logic                                         tb_axi4_ucore_wlast;
-logic                                         tb_axi4_ucore_wvalid;
-logic                                         tb_axi4_ucore_wready;
-logic [AXI4_UCORE_ID_W-1:0]                   tb_axi4_ucore_bid;
-logic [1:0]                                   tb_axi4_ucore_bresp;
-logic                                         tb_axi4_ucore_bvalid;
-logic                                         tb_axi4_ucore_bready;
-
-
 // AXI4 HBM_trc interface ======================================================================
 // DUT is in Wo mode and Tb in Ro -> No need for muxing
 // AXI4 HBM<->DUT interface
@@ -454,7 +375,7 @@ logic                                        axi4_trc_bready;
   logic [PEM_PC_MAX_L-1 :0]                                    tb_axi4_pem_bvalid;
   logic [PEM_PC_MAX_L-1 :0]                                    tb_axi4_pem_bready;
 
-// AXI4 GLWE
+// AXI4 HBM_GLWE interface ==========================================================================
   /* Read channel */
   logic [GLWE_PC_MAX_L-1 :0][AXI4_GLWE_ID_W-1:0]               dut_axi4_glwe_arid;
   logic [GLWE_PC_MAX_L-1 :0][AXI4_GLWE_ADD_W-1:0]              dut_axi4_glwe_araddr;
@@ -488,7 +409,7 @@ logic                                        axi4_trc_bready;
   logic [GLWE_PC_MAX_L-1 :0]                                   tb_axi4_glwe_bvalid;
   logic [GLWE_PC_MAX_L-1 :0]                                   tb_axi4_glwe_bready;
 
-// AXI4 BSK
+// AXI4 HBM_BSK interface ==========================================================================
   /* Read channel */
   logic [BSK_PC_MAX_L-1 :0][AXI4_BSK_ID_W-1:0]                 dut_axi4_bsk_arid;
   logic [BSK_PC_MAX_L-1 :0][AXI4_BSK_ADD_W-1:0]                dut_axi4_bsk_araddr;
@@ -522,7 +443,7 @@ logic                                        axi4_trc_bready;
   logic [BSK_PC_MAX_L-1 :0]                                    tb_axi4_bsk_bvalid;
   logic [BSK_PC_MAX_L-1 :0]                                    tb_axi4_bsk_bready;
 
-// AXI4 KSK
+// AXI4 HBM_KSK interface ==========================================================================
   /* Read channel */
   logic [KSK_PC_MAX_L-1 :0][AXI4_KSK_ID_W-1:0]                 dut_axi4_ksk_arid;
   logic [KSK_PC_MAX_L-1 :0][AXI4_KSK_ADD_W-1:0]                dut_axi4_ksk_araddr;
@@ -620,143 +541,35 @@ logic                                        axi4_trc_bready;
   );
 
 // ============================================================================================== --
-// Ublaze
+// Isc Drive logic
+// V80's RPU are modelize inside hpu_sim and the isc_stream in dump in dop_executed.hex files
 // ============================================================================================== --
-// V80's RPU is modelized with the ublaze.
+// Axi4-stream isc endpoint
+  axis_drv_if #(
+  .AXIS_DATA_W(PE_INST_W)
+  ) axis_isc_drv ( .clk(clk), .rst_n(s_rst_n));
 
-`ifdef FPGA_V80
-  tb_hpu_ucore
-  #(
-    .AXI4_ADD_W    (AXI4_UCORE_ADD_W),
-    .AXI4_DATA_W   (AXI4_UCORE_DATA_W),
-    .AXI4_ID_W     (AXI4_UCORE_ID_W)
-  ) tb_hpu_ucore (
-    .clk           (clk),
-    .s_rst_n       (s_rst_n),
+  // Connect interface on testbench signals
+  assign isc_dop = axis_isc_drv.tdata;
+  assign axis_isc_drv.tready    = isc_dop_rdy;
+  assign isc_dop_vld = axis_isc_drv.tvalid;
 
-    `AXI4_WR_INSTANCE(m_axi4,dut_axi4_ucore,)
-    `AXI4_RD_INSTANCE(m_axi4,dut_axi4_ucore,)
+  // Use a random data generator for custom pattern on isc_vld
+  random_data #(.DATA_W(32)) rand_isc_delay = new(0);
 
-    .isc_dop       (isc_dop),
-    .isc_dop_rdy   (isc_dop_rdy),
-    .isc_dop_vld   (isc_dop_vld),
+// Axi4-stream isc ack endpoint
+  axis_ep_if #(
+  .AXIS_DATA_W(PE_INST_W)
+  ) axis_isc_ack_ep ( .clk(clk), .rst_n(s_rst_n));
 
-    .isc_ack       (isc_ack),
-    .isc_ack_rdy   (isc_ack_rdy),
-    .isc_ack_vld   (isc_ack_vld)
-  );
-`endif
-
+  // Connect interface on testbench signals
+  assign axis_isc_ack_ep.tdata = isc_ack;
+  assign isc_ack_rdy = axis_isc_ack_ep.tready;
+  assign axis_isc_ack_ep.tvalid = isc_ack_vld;
 
 // ============================================================================================== --
 // HBM memory emulation
 // ============================================================================================== --
-// ---------------------------------------------------------------------------------------------- --
-// Memory used by UCORE (of the HPU or the testbench)
-// ---------------------------------------------------------------------------------------------- --
-  axi4_mem_with_select #(
-    .SLAVE_IF(2),
-    .DATA_WIDTH(AXI4_UCORE_DATA_W),
-    .ADDR_WIDTH(AXI4_UCORE_ADD_W),
-    .ID_WIDTH  (AXI4_UCORE_ID_W),
-    .WR_CMD_BUF_DEPTH (MEM_WR_CMD_BUF_DEPTH),
-    .RD_CMD_BUF_DEPTH (MEM_RD_CMD_BUF_DEPTH),
-    .WR_DATA_LATENCY (MEM_WR_DATA_LATENCY),
-    .RD_DATA_LATENCY (MEM_RD_DATA_LATENCY),
-    .USE_WR_RANDOM (MEM_USE_WR_RANDOM),
-    .USE_RD_RANDOM (MEM_USE_RD_RANDOM)
-  ) axi4_mem_ucore (
-    .clk          (clk),
-    .rst          (!s_rst_n),
-
-    .s_axi4_select_1h(axi4_ucore_select),
-    .s_axi4_awid   ({tb_axi4_ucore_awid   , dut_axi4_ucore_awid   }),
-    .s_axi4_awaddr ({tb_axi4_ucore_awaddr , dut_axi4_ucore_awaddr }),
-    .s_axi4_awlen  ({tb_axi4_ucore_awlen  , dut_axi4_ucore_awlen  }),
-    .s_axi4_awsize ({tb_axi4_ucore_awsize , dut_axi4_ucore_awsize }),
-    .s_axi4_awburst({tb_axi4_ucore_awburst, dut_axi4_ucore_awburst}),
-    .s_axi4_awlock ('0), // disable
-    .s_axi4_awcache('0), // disable
-    .s_axi4_awprot ('0), // disable
-    .s_axi4_awqos  ('0), // disable
-    .s_axi4_awregion('0), // disable
-    .s_axi4_awvalid({tb_axi4_ucore_awvalid, dut_axi4_ucore_awvalid}),
-    .s_axi4_awready({tb_axi4_ucore_awready, dut_axi4_ucore_awready}),
-    .s_axi4_wdata  ({tb_axi4_ucore_wdata  , dut_axi4_ucore_wdata  }),
-    .s_axi4_wstrb  ({tb_axi4_ucore_wstrb  , dut_axi4_ucore_wstrb  }),
-    .s_axi4_wlast  ({tb_axi4_ucore_wlast  , dut_axi4_ucore_wlast  }),
-    .s_axi4_wvalid ({tb_axi4_ucore_wvalid , dut_axi4_ucore_wvalid }),
-    .s_axi4_wready ({tb_axi4_ucore_wready , dut_axi4_ucore_wready }),
-    .s_axi4_bid    ({tb_axi4_ucore_bid    , dut_axi4_ucore_bid    }),
-    .s_axi4_bresp  ({tb_axi4_ucore_bresp  , dut_axi4_ucore_bresp  }),
-    .s_axi4_bvalid ({tb_axi4_ucore_bvalid , dut_axi4_ucore_bvalid }),
-    .s_axi4_bready ({tb_axi4_ucore_bready , dut_axi4_ucore_bready }),
-    .s_axi4_arid   ({tb_axi4_ucore_arid   , dut_axi4_ucore_arid   }),
-    .s_axi4_araddr ({tb_axi4_ucore_araddr , dut_axi4_ucore_araddr }),
-    .s_axi4_arlen  ({tb_axi4_ucore_arlen  , dut_axi4_ucore_arlen  }),
-    .s_axi4_arsize ({tb_axi4_ucore_arsize , dut_axi4_ucore_arsize }),
-    .s_axi4_arburst({tb_axi4_ucore_arburst, dut_axi4_ucore_arburst}),
-    .s_axi4_arlock ('0), // disable
-    .s_axi4_arcache('0), // disable
-    .s_axi4_arprot ('0), // disable
-    .s_axi4_arqos  ('0), // disable
-    .s_axi4_arregion('0), // disable
-    .s_axi4_arvalid({tb_axi4_ucore_arvalid, dut_axi4_ucore_arvalid}),
-    .s_axi4_arready({tb_axi4_ucore_arready, dut_axi4_ucore_arready}),
-    .s_axi4_rid    ({tb_axi4_ucore_rid    , dut_axi4_ucore_rid    }),
-    .s_axi4_rdata  ({tb_axi4_ucore_rdata  , dut_axi4_ucore_rdata  }),
-    .s_axi4_rresp  ({tb_axi4_ucore_rresp  , dut_axi4_ucore_rresp  }),
-    .s_axi4_rlast  ({tb_axi4_ucore_rlast  , dut_axi4_ucore_rlast  }),
-    .s_axi4_rvalid ({tb_axi4_ucore_rvalid , dut_axi4_ucore_rvalid }),
-    .s_axi4_rready ({tb_axi4_ucore_rready , dut_axi4_ucore_rready })
-  );
-
-  // AXI4 hbm tb driver
-  maxi4_if #(
-    .AXI4_DATA_W(AXI4_UCORE_DATA_W),
-    .AXI4_ADD_W (AXI4_UCORE_ADD_W),
-    .AXI4_ID_W  (AXI4_UCORE_ID_W)
-  ) maxi4_ucore_if (
-    .clk(clk),
-    .rst_n(s_rst_n)
-  );
-
-  // Connect interface on testbench signals
-  // Write channel
-  assign tb_axi4_ucore_awid         = maxi4_ucore_if.awid   ;
-  assign tb_axi4_ucore_awaddr       = maxi4_ucore_if.awaddr ;
-  assign tb_axi4_ucore_awlen        = maxi4_ucore_if.awlen  ;
-  assign tb_axi4_ucore_awsize       = maxi4_ucore_if.awsize ;
-  assign tb_axi4_ucore_awburst      = maxi4_ucore_if.awburst;
-  assign tb_axi4_ucore_awvalid      = maxi4_ucore_if.awvalid;
-  assign tb_axi4_ucore_wdata        = maxi4_ucore_if.wdata  ;
-  assign tb_axi4_ucore_wstrb        = maxi4_ucore_if.wstrb  ;
-  assign tb_axi4_ucore_wlast        = maxi4_ucore_if.wlast  ;
-  assign tb_axi4_ucore_wvalid       = maxi4_ucore_if.wvalid ;
-  assign tb_axi4_ucore_bready       = maxi4_ucore_if.bready ;
-
-  assign maxi4_ucore_if.awready    = tb_axi4_ucore_awready;
-  assign maxi4_ucore_if.wready     = tb_axi4_ucore_wready;
-  assign maxi4_ucore_if.bid        = tb_axi4_ucore_bid;
-  assign maxi4_ucore_if.bresp      = tb_axi4_ucore_bresp;
-  assign maxi4_ucore_if.bvalid     = tb_axi4_ucore_bvalid;
-
-  // Read channel
-  assign tb_axi4_ucore_arid         = maxi4_ucore_if.arid   ;
-  assign tb_axi4_ucore_araddr       = maxi4_ucore_if.araddr ;
-  assign tb_axi4_ucore_arlen        = maxi4_ucore_if.arlen  ;
-  assign tb_axi4_ucore_arsize       = maxi4_ucore_if.arsize ;
-  assign tb_axi4_ucore_arburst      = maxi4_ucore_if.arburst;
-  assign tb_axi4_ucore_arvalid      = maxi4_ucore_if.arvalid;
-  assign tb_axi4_ucore_rready       = maxi4_ucore_if.rready;
-
-  assign maxi4_ucore_if.arready    = tb_axi4_ucore_arready;
-  assign maxi4_ucore_if.rid        = tb_axi4_ucore_rid;
-  assign maxi4_ucore_if.rdata      = tb_axi4_ucore_rdata;
-  assign maxi4_ucore_if.rresp      = tb_axi4_ucore_rresp;
-  assign maxi4_ucore_if.rlast      = tb_axi4_ucore_rlast;
-  assign maxi4_ucore_if.rvalid     = tb_axi4_ucore_rvalid;
-
 // ---------------------------------------------------------------------------------------------- --
 // HBM PC used by TraceManager
 // ---------------------------------------------------------------------------------------------- --
@@ -1145,6 +958,21 @@ logic                                        axi4_trc_bready;
 // ============================================================================================== --
 // Utilities function to generate stimulus
 // ============================================================================================== --
+// Find a index of Iop stream in DOp_q
+function automatic int dop_lookup(
+ input logic [IOP_ID_W-1:0]  iop,
+ output int id_in_q
+);
+begin
+  foreach (DOP_LIST[i]) begin
+      if (DOP_LIST[i] == iop) begin
+          id_in_q = i;
+          return 1;  // found
+      end
+  end
+  return 0;  // not found
+end
+endfunction
 
 // ---------------------------------------------------------------------------------------------- --
 // Soft Reset
@@ -1228,122 +1056,6 @@ begin
 
   gen_cfg_axil_loop[P1_OFS].maxil_drv_if.write_trans(BPIP_USE_OFS, bpip_use);
   gen_cfg_axil_loop[P1_OFS].maxil_drv_if.write_trans(BPIP_TIMEOUT_OFS, BPIP_TIMEOUT);
-end
-endtask
-
-// ---------------------------------------------------------------------------------------------- --
-// init_iop2dop_table
-// ---------------------------------------------------------------------------------------------- --
-task automatic init_iop2dop_table;
-  inout logic [PE_INST_W-1:0]   dop_q[DOP_NB-1:0][$];
-  logic [AXI4_UCORE_ADD_W-1:0]  lut_addr;
-  logic [AXI4_UCORE_ADD_W-1:0]  tr_addr;
-  logic [AXI4_UCORE_DATA_W-1:0] addr_q[$];
-  logic [AXI4_UCORE_DATA_W-1:0] size_q[$]; // Workaround
-  logic [IOP_W-1:0]             iop_id;
-  integer                       size;
-begin
-  // TB take control of the hbm
-  axi4_ucore_select = TB_DRIVE_HBM;
-
-  // Ucode handle multi-width, thus the lut_addr is now linked to integer_w
-  // In simulation we alwaays simulate only one integer-width at a time, thus the tr_addr could be right
-  // after the lut_addr range
-  lut_addr = (REG_DATA_BYTES*(1 << IOP_W)) * ((IOP_INT_SIZE/MSG_W)-1);
-  tr_addr = lut_addr + REG_DATA_BYTES*(1 << IOP_W);
-
-  // Upload it in memory and update entry in lookup
-  // Filter msb in table lookup -> used to addr in ram with reduced range
-  // Iop currently have a sparse encoding on 8b -> Generate a zeroed array and update used entries
-  addr_q.delete();
-  // Set default to 0
-  for (int i=0; i< 2**IOP_W; i++) begin
-    addr_q[$+1] = 0;
-  end
-
-  for (int i=0; i<DOP_NB; i=i+1) begin
-    iop_id         = DOP_LIST[i];
-    addr_q[iop_id] = tr_addr;
-    size           = dop_q[i].size();
-    assert ((size+1)>= MIN_IOP_SIZE)
-    else $fatal(1,"%t > ERROR: Instruction stream doesn't match minimum sized requirement. This could induce an overflow of the sync_id counter and a deadlock.", $time);
-    $display("%t > INFO: Write IOp 0x%02x tr_table @0x%0x of %0d elements", $time, iop_id,addr_q[iop_id],size);
-
-    // Write the size.
-    // Since maxi4_ucore_if.write_trans only accepts queue, put the size in a queue of a single element.
-    size_q.delete();
-    size_q.push_back(size);
-    maxi4_ucore_if.write_trans(tr_addr, size_q);
-    tr_addr += REG_DATA_BYTES;
-    // Write DOP associated to the iop_id
-    maxi4_ucore_if.write_trans(tr_addr, dop_q[i]);
-    tr_addr += REG_DATA_BYTES*size;
-  end
-
-  // Write cross-reference table iop_id <-> dop_code address
-  maxi4_ucore_if.write_trans(lut_addr, addr_q);
-
-  // TB release control of the hbm
-  axi4_ucore_select = DUT_DRIVE_HBM;
-end
-endtask
-
-// ---------------------------------------------------------------------------------------------- --
-// push_work
-// ---------------------------------------------------------------------------------------------- --
-task automatic push_work;
-  inout logic [AXIL_DATA_W-1:0] iopq[$];
-  inout int                      workq[$];
-  logic [AXIL_DATA_W-1:0]     iop; // To identify
-  logic [AXIL_DATA_W:0]       word;
-begin
-  iop = iopq[0];
-  while (iopq.size() > 0) begin
-    word = iopq.pop_front();
-    `WORKQ_DRV_IF .write_trans(`WORKQ_REG_PKG ::WORKACK_WORKQ_OFS, word);
-  end
-
-  $display("%t > INFO: Insert IOp %x", $time, iop);
-
-  workq.push_back(iop);
-end
-endtask
-
-// ---------------------------------------------------------------------------------------------- --
-// pop_ack
-// ---------------------------------------------------------------------------------------------- --
-task automatic pop_ack;
-  inout int work_q[$];
-  output int opcode_ack;
-  logic [7:0] ucore_version_major;
-  logic [7:0] ucore_version_minor;
-begin
-  do begin
-     repeat(500) @(posedge clk);
-     `WORKQ_DRV_IF .read_trans(`WORKQ_REG_PKG ::WORKACK_ACKQ_OFS, opcode_ack);
-  end while (opcode_ack == ACKQ_RD_ERR);
-
-  // Check that received value match or is a version response
-  if (work_q[0] == UCORE_VERSION_IOP) begin
-    ucore_version_major = opcode_ack[15:8];
-    ucore_version_minor = opcode_ack[7:0];
-    $display("%t > INFO: ucore version %02d.%02d", $time, ucore_version_major, ucore_version_minor);
-    assert (ucore_version_major == EXPECTED_UCORE_VERSION_MAJOR
-         && ucore_version_minor == EXPECTED_UCORE_VERSION_MINOR)
-      else begin
-        #5 $fatal(1, "%t > ERROR: version of ucore %02d.%02d is different from expected one %02d.%02d", $time,
-            ucore_version_major, ucore_version_minor,
-            EXPECTED_UCORE_VERSION_MAJOR, EXPECTED_UCORE_VERSION_MINOR);
-      end
-  end else begin
-    assert(opcode_ack == work_q[0])
-      else begin
-        #5 $fatal(1, "%t > ERROR: opcode ack mismatch [exp %x != %x dut]", $time, work_q[0], opcode_ack);
-      end
-  end
-
-  // Remove opcode from work_q
-  work_q.pop_front();
 end
 endtask
 
@@ -1761,6 +1473,42 @@ end
 endtask
 
 // ---------------------------------------------------------------------------------------------- --
+// push_work
+// ---------------------------------------------------------------------------------------------- --
+task automatic push_work;
+  input logic [IOP_ID_W-1:0]     iop; // To identify
+  input logic [PE_INST_W-1:0]  dop_q[DOP_NB-1:0][$];
+  logic dop_id;
+  logic [PE_INST_W-1:0]  isc_q[$];
+  int isc_cnt;
+begin
+
+  // Find position in dop_q of the given iop
+  if (0 == dop_lookup(iop, dop_id)) begin
+      $fatal(1, "> ERROR IOp %d doesn't have associated DOp stream ", iop);
+  end else begin
+    $display("%t > INFO: Start IOp %d insertion",$time, iop);
+    isc_q = dop_q[dop_id];
+
+    // Drive Dop stream on dut
+    isc_cnt = isc_q.size();
+    foreach(isc_q[i]) begin
+      axis_isc_drv.push(isc_q[i], 1'bx);
+      // Draw random value for stream delay
+      if (!rand_isc_delay.randomize() with {rand_isc_delay.data dist {
+            [0: 5] :/ ((2**8-1)-ASM_ISC_HALT),
+            [ASM_ISC_DELAY: 4*ASM_ISC_DELAY] :/ ASM_ISC_HALT}; }) begin
+        $display("%t > ERROR: randomization of rand_vld", $time);
+        $finish;
+      end
+      repeat(rand_isc_delay.get_data) @(posedge clk);
+    end
+    $display("%t > INFO: All instruction of IOp %d pushed in DUT [%d]",$time, iop, isc_cnt);
+  end
+end
+endtask
+
+// ---------------------------------------------------------------------------------------------- --
 // write_glwe
 // ---------------------------------------------------------------------------------------------- --
 task automatic write_glwe;
@@ -1825,19 +1573,17 @@ end
 endtask
 
 // ---------------------------------------------------------------------------------------------- --
-// read_op
+// read_dop
 // ---------------------------------------------------------------------------------------------- --
 // Fill queue with DOp/IOp read from a file
-task automatic read_op;
+task automatic read_dop;
   input string op_filename;
-  inout logic [AXI4_UCORE_DATA_W-1:0] op_q[$];
-  logic [AXI4_UCORE_DATA_W-1:0] op;
+  inout logic [PE_INST_W-1:0] op_q[$];
+  logic [PE_INST_W-1:0] op;
 begin
-  // assert (AXI4_UCORE_DATA_W == IOP_BASE_W)
-  // else $fatal(1,"%t > ERROR: To merge read_op code we made the assumption that IOP_BASE_W and AXI4_UCORE_DATA_W are equal.", $time);
 
   // Open file associated with current op
-  automatic read_data #(.DATA_W(AXI4_UCORE_DATA_W)) op_rd = new(.filename(op_filename), .data_type(FILE_DATA_TYPE));
+  automatic read_data #(.DATA_W(PE_INST_W)) op_rd = new(.filename(op_filename), .data_type(FILE_DATA_TYPE));
   if (!op_rd.open()) begin
     $display("%t > ERROR: opening file %0s failed\n", $time, op_filename);
     $finish;
@@ -1852,6 +1598,36 @@ begin
 end
 endtask
 
+// ---------------------------------------------------------------------------------------------- --
+// read_iop_id
+// ---------------------------------------------------------------------------------------------- --
+// Extract IOp id from iop stream read from a file
+task automatic read_iop_id;
+  input string op_filename;
+  output logic [IOP_ID_W-1:0] iop_id;
+  logic [PE_INST_W-1:0] op_q[$];
+  logic [PE_INST_W-1:0] op;
+begin
+
+  // Open file associated with current op
+  automatic read_data #(.DATA_W(PE_INST_W)) op_rd = new(.filename(op_filename), .data_type(FILE_DATA_TYPE));
+  if (!op_rd.open()) begin
+    $display("%t > ERROR: opening file %0s failed\n", $time, op_filename);
+    $finish;
+  end
+
+  // Read file and flush in a queue
+  op = op_rd.get_next_data();
+  while (! op_rd.is_st_eof()) begin
+    op_q.push_back(op);
+    op = op_rd.get_next_data();
+  end
+
+  // Extract IOp Id from stream
+  iop_id = op_q[0][IOP_ID_LB+IOP_ID_W-1:IOP_ID_LB];
+end
+endtask
+
 // ============================================================================================== --
 // Scenario
 // ============================================================================================== --
@@ -1861,22 +1637,21 @@ endtask
   bit [PEM_PC_MAX_L-1:0][AXI4_PEM_ADD_W-1: 0]   blwe_addr;
 
   initial begin
-    int                    work_q[$];
-    logic [AXI4_UCORE_DATA_W-1:0]  iop_q[IOP_NB-1:0][$];
-    logic [AXI4_UCORE_DATA_W-1:0]  dop_q[DOP_NB-1:0][$];
-    int                    iop_ack;
-    logic [AXI4_UCORE_DATA_W-1:0]  iop_tmp_q[$];
+    logic [IOP_ID_W-1:0]   iop_arr[IOP_NB-1:0];
+    logic [PE_INST_W-1:0]  dop_q[DOP_NB-1:0][$];
+    bit [PE_INST_W-1: 0] isc_ack;
+    bit _is_last;
 
     $display("%t > INFO: maxil_drv_if.init",$time);
     gen_prc_axil_loop[P1_OFS].maxil_drv_if.init();
     gen_prc_axil_loop[P3_OFS].maxil_drv_if.init();
     gen_cfg_axil_loop[P1_OFS].maxil_drv_if.init();
     gen_cfg_axil_loop[P3_OFS].maxil_drv_if.init();
-    $display("%t > INFO: maxi4_ucore_if.init",$time);
-    maxi4_ucore_if.init();
     $display("%t > INFO: maxi4_trc_if.init",$time);
     maxi4_trc_if.init();
     $display("%t > INFO: maxi4_bsk_if.init",$time);
+    axis_isc_drv.init();
+    axis_isc_ack_ep.init();
     for (int pc=0; pc<BSK_PC_MAX_L; pc=pc+1) begin
       case (pc)
         0: gen_bsk_mem_loop[0].maxi4_bsk_if.init();
@@ -1937,7 +1712,6 @@ endtask
     end
     $display("%t > INFO: Init done",$time);
     axi4_pem_select = TB_DRIVE_HBM;
-    axi4_ucore_select = TB_DRIVE_HBM;
 
     //===============================
     // Wait reset
@@ -2009,32 +1783,22 @@ endtask
     for (int iter=0; iter < SIMU_ITERATION_NB; iter=iter+1) begin
       // Read Iop in a queue
       for (int i=0; i<IOP_NB; i=i+1) begin
-        iop_q[i].delete();
-      end
-      for (int i=0; i<DOP_NB; i=i+1) begin
-        dop_q[i].delete();
-      end
-
-      for (int i=0; i<IOP_NB; i=i+1) begin
         string fn;
         fn =  $sformatf("%s_iid%0d.hex", IOP_FILE_PREFIX, i+1);
-        read_op(fn, iop_q[i]);
+        read_iop_id(fn, iop_arr[i]);
       end
 
       // Load Dops in queues
       for (int i=0; i<DOP_NB; i=i+1) begin
+        dop_q[i].delete();
+      end
+      for (int i=0; i<DOP_NB; i=i+1) begin
         string fn;
         fn =  $sformatf("%s_executed_%02x.hex", DOP_FILE_PREFIX, DOP_LIST[i]);
-        read_op(fn, dop_q[i]);
+        read_dop(fn, dop_q[i]);
       end
 
       fork
-        begin
-          // Preload translation table
-          $display("%t > INFO: Load IOP to DOP tables...", $time);
-          init_iop2dop_table(dop_q);
-          $display("%t > INFO: Load IOP to DOP tables...Done", $time);
-        end
         begin
           $display("%t > INFO: Load BLWE...", $time);
           write_blwe(blwe_addr);
@@ -2062,23 +1826,20 @@ endtask
       // Tb release control of the HBM and issue IOps command to the dut
       // Then it waits for completion of the command batch
       axi4_pem_select = DUT_DRIVE_HBM;
-      axi4_ucore_select = DUT_DRIVE_HBM;
 
-      // Iterate over IOp
-      // NB: Push 1 IOP at a time.
-      for (int i=0; i<IOP_NB; i=i+1) begin
-        push_work(iop_q[i], work_q);
-
-        if (i >= TEST_PS) begin
-          pop_ack(work_q, iop_ack);
-          $display("%t > INFO: Received ack for Iop %x", $time, iop_ack);
+      fork
+        begin // push work
+          for (int i=0; i<IOP_NB; i=i+1) begin
+            push_work(iop_arr[i], dop_q);
+          end
         end
-      end
-
-      for (int i=0; i< TEST_PS; i++) begin
-          pop_ack(work_q, iop_ack);
-          $display("%t > INFO: Received ack for Iop %x", $time, iop_ack);
-      end
+        begin // Wait for ack
+          for (int i=0; i<IOP_NB; i=i+1) begin
+            axis_isc_ack_ep.pop(isc_ack, _is_last);
+            $display("%t > INFO: Received ack %x", $time, isc_ack);
+          end
+        end
+      join
 
       //===============================
       // Check phase
