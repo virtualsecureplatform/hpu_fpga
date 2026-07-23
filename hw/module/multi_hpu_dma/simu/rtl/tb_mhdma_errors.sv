@@ -1036,8 +1036,9 @@ module tb_mhdma_errors;
       maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b0, 3'b0, 4'h1, 24'hABCDE1});
       repeat(50) @(posedge clk_mhdma_cfg);
 
-      // SW freeze (no error): arm, capture BATCH3, then WRITE frozen=1 to force a freeze on demand.
-      // Exercises the trace_ctrl write-data decode (r_axil_wdata) through the real regif, and that the freeze needs no error / no timeout.
+      // --- SW freeze (no error): arm, capture BATCH3, then WRITE frozen=1 to force a freeze on
+      //     demand. Exercises the trace_ctrl write-data decode (r_axil_wdata) through the real regif,
+      //     and that the freeze needs no error / no timeout. ---
       maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm (frozen=0)
       repeat(20) @(posedge clk_mhdma_cfg);
       for (int i = 0; i < BATCH3; i++) begin

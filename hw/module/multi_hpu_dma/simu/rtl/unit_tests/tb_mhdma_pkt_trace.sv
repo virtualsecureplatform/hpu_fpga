@@ -23,6 +23,7 @@
 //   > full_throughput     : header_valid held high on consecutive cycles -> one write/cycle, exact tail
 //   > wrapped_boundary    : exactly DEPTH-1 (partial, wrapped=0) vs DEPTH (full, wrapped=1) writes
 //   > sw_freeze           : software freeze (no error, no tail) -> freezes on demand, partial & full ring
+//   > sw_freeze_midstream : software freeze issued WHILE capture traffic is live (gates trace_we mid-write)
 //
 // Every freeze point also checks trace_wrapped (ring-filled flag): it must be 1 iff >= TRACE_DEPTH
 // headers were captured this session (rotate-by-wptr full ring) and 0 for a partial fill.
@@ -226,6 +227,15 @@ module tb_mhdma_pkt_trace;
     if (~resetn_mhdma) tb_cyc <= 0;
     else               tb_cyc <= tb_cyc + 1;
 
+  // White-box count of accepted writes (dut.trace_we) since the last re-arm. Used by the
+  // sw_freeze_midstream scenario, where the exact accepted count is non-deterministic (the freeze
+  // edge races live traffic through the CDC) - the DUT itself reports the ground-truth count.
+  int dut_we_cnt;
+  always_ff @(posedge clk_mhdma)
+    if      (~resetn_mhdma)    dut_we_cnt <= 0;
+    else if (dut.trace_rearm)  dut_we_cnt <= 0;
+    else if (dut.trace_we)     dut_we_cnt <= dut_we_cnt + 1;
+
 // ============================================================================================== --
 // Golden model
 // Mirrors the RTL write decision so read-back can be checked field-by-field.
@@ -286,6 +296,14 @@ module tb_mhdma_pkt_trace;
 // ============================================================================================== --
   int  push_idx;                          // global monotonic push index (embedded in header)
   logic [REQ_ID_W-1:0] REQ_TYPES [4];
+
+  // Per-beat log of driven traffic (in push order), for sw_freeze_midstream: after a mid-stream
+  // freeze, the golden model is rebuilt from the first dut_we_cnt logged beats (drop-oldest ring).
+  localparam int LOG_DEPTH = 4 * TRACE_DEPTH;
+  command_t               log_hdr [LOG_DEPTH];
+  logic [TRACE_AUX_W-1:0] log_aux [LOG_DEPTH];
+  int                     log_cyc [LOG_DEPTH];
+  int                     log_n;
 
   initial begin
     REQ_TYPES[0] = REQ_ID_NOTIFY;
@@ -390,6 +408,48 @@ module tb_mhdma_pkt_trace;
     end
   endtask
 
+  // Drive + log (NO gm_record): sw_freeze_midstream reconstructs the model afterward from the DUT's
+  // accepted-write count, so these must not touch the golden model. Timing mirrors push_burst.
+  task automatic drive_burst_log(input int n);   // continuous: header_valid held high, one write/cycle
+    command_t               header;
+    logic [TRACE_AUX_W-1:0]  aux;
+    begin
+      for (int i = 0; i < n; i++) begin
+        header = rand_header(push_idx);
+        aux    = rand_aux();
+        @(posedge clk_mhdma);
+        header_data  = header;
+        trace_aux    = aux;
+        header_valid = 1'b1;
+        log_hdr[log_n] = header; log_aux[log_n] = aux; log_cyc[log_n] = tb_cyc; log_n = log_n + 1;
+        push_idx = push_idx + 1;
+      end
+      @(posedge clk_mhdma);
+      header_valid = 1'b0;
+    end
+  endtask
+
+  // Drive + log, spaced (mirrors push_one): freeze edge can land in a gap (header_valid low).
+  task automatic drive_spaced_log(input int n, input int gap);
+    command_t               header;
+    logic [TRACE_AUX_W-1:0]  aux;
+    begin
+      for (int i = 0; i < n; i++) begin
+        header = rand_header(push_idx);
+        aux    = rand_aux();
+        @(posedge clk_mhdma);
+        header_data  = header;
+        trace_aux    = aux;
+        header_valid = 1'b1;
+        log_hdr[log_n] = header; log_aux[log_n] = aux; log_cyc[log_n] = tb_cyc; log_n = log_n + 1;
+        @(posedge clk_mhdma);
+        header_valid = 1'b0;
+        push_idx = push_idx + 1;
+        repeat (gap) @(posedge clk_mhdma);
+      end
+    end
+  endtask
+
   // Assert / clear error_detected (level). Set the model trigger in the gap.
   task automatic assert_error();
     begin
@@ -425,9 +485,8 @@ module tb_mhdma_pkt_trace;
     end
   endtask
 
-  // Software freeze: pulse trace_freeze (cfg domain).
-  // Caller stops traffic first, then waits for the freeze to cross into clk_mhdma (wait_frozen)
-  // before mirroring it in the model (gm_force_frozen).
+  // Software freeze: pulse trace_freeze (cfg domain). Caller stops traffic first, then waits for the
+  // freeze to cross into clk_mhdma (wait_frozen) before mirroring it in the model (gm_force_frozen).
   task automatic do_freeze();
     begin
       @(posedge clk_mhdma_cfg);
@@ -933,9 +992,9 @@ module tb_mhdma_pkt_trace;
   endtask
 
   // -------------------------------------------------------------------------
-  // Scenario : software-initiated freeze, NO error. SW freeze is immediate (no tail);
-  // with no error the timeout backstop can never fire, so freezing at all proves the SW path.
-  // Covers a partial ring (wrapped=0) and a full ring (wrapped=1), and that a re-arm clears it.
+  // Scenario : software-initiated freeze, NO error. SW freeze is immediate (no tail); with no error
+  //            the timeout backstop can never fire, so freezing at all proves the SW path. Covers a
+  //            partial ring (wrapped=0) and a full ring (wrapped=1), and that a re-arm clears it.
   // -------------------------------------------------------------------------
   task automatic run_scenario_sw_freeze();
     int m, pre, exp_wptr, exp_count;
@@ -982,6 +1041,67 @@ module tb_mhdma_pkt_trace;
     end
   endtask
 
+  // -------------------------------------------------------------------------
+  // Scenario : SW freeze issued WHILE capture traffic is live (header_valid still asserting when the
+  //            freeze edge lands). Stresses the one path unique to SW freeze: trace_sw_freeze_q ->
+  //            trace_tail_done gating trace_we mid-write. The freeze edge races the traffic through
+  //            the CDC, so the accepted-write count is non-deterministic -> rebuild the golden model
+  //            from the DUT's own accepted count (dut_we_cnt). Two phases: continuous (edge coincident
+  //            with a beat) and spaced (edge can fall in a gap).
+  // -------------------------------------------------------------------------
+  task automatic run_scenario_sw_freeze_midstream();
+    int freeze_delay_cfg, accepted, n_beats;
+    begin
+      scenario_start(scenario_id, "SW freeze mid-stream: freeze while capture traffic is live");
+
+      for (int phase = 0; phase < 2; phase++) begin
+        do_arm();
+        log_n           = 0;
+        n_beats         = 2 * TRACE_DEPTH + $urandom_range(10, 40); // long enough to still be driving at the freeze
+        freeze_delay_cfg = $urandom_range(2, 8);                    // fire partway into the burst
+
+        // drive traffic and pulse the freeze concurrently
+        fork
+          begin
+            if (phase == 0) drive_burst_log(n_beats);
+            else            drive_spaced_log(n_beats, $urandom_range(1, 3));
+          end
+          begin
+            repeat (freeze_delay_cfg) @(posedge clk_mhdma_cfg);
+            do_freeze();
+          end
+        join
+        wait_frozen(scenario_id, FREEZE_SW_WAIT_CFG);
+
+        // Rebuild the model from the first `accepted` logged beats (drop-oldest ring), then check
+        // content / ordering / timestamps / wptr / wrapped exactly as the deterministic scenarios do.
+        accepted = dut_we_cnt;
+        gm_arm();
+        for (int i = 0; i < accepted; i++) gm_record(log_hdr[i], log_aux[i], log_cyc[i]);
+        gm_force_frozen();
+
+        check_wptr(scenario_id, gm_wptr);
+        check_wrapped(scenario_id, gm_count >= TRACE_DEPTH);
+        read_and_check(scenario_id, gm_count, gm_count >= TRACE_DEPTH);
+
+        // no write may be accepted after the freeze, even with traffic still driving
+        accepted = dut_we_cnt;
+        if (phase == 0) drive_burst_log(TRACE_DEPTH);
+        else            drive_spaced_log(10, 2);
+        assert (dut_we_cnt == accepted) else begin
+          $display("[ERROR:%0d]: %0d writes accepted after SW freeze", scenario_id, dut_we_cnt - accepted);
+          error_content = 1'b1;
+        end
+        check_wptr(scenario_id, gm_wptr);
+      end
+
+      // clean re-arm -> capturing again, not frozen
+      do_arm();
+      check_not_frozen(scenario_id, 60);
+      scenario_end(scenario_id, clk_mhdma_cfg);
+    end
+  endtask
+
 // ============================================================================================== --
 // Main
 // ============================================================================================== --
@@ -994,6 +1114,7 @@ module tb_mhdma_pkt_trace;
     trace_freeze   = 1'b0;
     trace_rd_en    = 1'b0;
     push_idx       = 0;
+    log_n          = 0;
     scenario_id    = 0;
 
     wait (resetn_mhdma & resetn_mhdma_cfg);
@@ -1010,6 +1131,7 @@ module tb_mhdma_pkt_trace;
     run_scenario_full_throughput();
     run_scenario_wrapped_boundary();
     run_scenario_sw_freeze();
+    run_scenario_sw_freeze_midstream();
 
     repeat (20) @(posedge clk_mhdma_cfg);
     end_of_test = 1'b1;
