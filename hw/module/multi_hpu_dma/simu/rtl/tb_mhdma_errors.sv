@@ -926,6 +926,7 @@ module tb_mhdma_errors;
   task automatic test_packet_trace();
     int                    BATCH1;
     int                    BATCH2;
+    int                    BATCH3;
     logic [REG_DATA_W-1:0] status;
     logic [5:0]            wptr1, wptr2; // trace_ctrl[6:1] (6-bit write pointer at depth 64)
     logic [SRC_ADDR_W-1:0] sent_src [TRACE_DEPTH]; // per-packet src_addr we drove (content-check expectation)
@@ -933,9 +934,10 @@ module tb_mhdma_errors;
     begin
       BATCH1 = 5;
       BATCH2 = 3;
+      BATCH3 = 4;
 
       // --- Arm the trace (flush + start circular capture) ---
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1);
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm: trace_ctrl.frozen=0 (write frozen=1 to force a SW freeze)
       repeat(20) @(posedge clk_mhdma_cfg);
 
       // --- Populate the trace with BATCH1 received notify headers ---
@@ -984,7 +986,7 @@ module tb_mhdma_errors;
       end
 
       // --- Re-arm: flush + resume capture; verify it unfreezes ---
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1);
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm: trace_ctrl.frozen=0 (write frozen=1 to force a SW freeze)
       repeat(60) @(posedge clk_mhdma_cfg);
       maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
       $display("%t > [TRACE] after re-arm: status=0x%08x frozen=%0b", $time, status, status[0]);
@@ -1030,9 +1032,44 @@ module tb_mhdma_errors;
       check_trace_content(BATCH2, sent_src, sent_iop);
       $display("%t > [TRACE] re-arm cycle OK: trace re-armed, re-froze, content verified, reads completed without stall", $time);
 
-      // --- Leave the trace clean: restore one-hot config and re-arm ---
+      // --- Restore one-hot config so no error is asserted for the SW-freeze sub-test ---
       maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b0, 3'b0, 4'h1, 24'hABCDE1});
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1);
+      repeat(50) @(posedge clk_mhdma_cfg);
+
+      // SW freeze (no error): arm, capture BATCH3, then WRITE frozen=1 to force a freeze on demand.
+      // Exercises the trace_ctrl write-data decode (r_axil_wdata) through the real regif, and that the freeze needs no error / no timeout.
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm (frozen=0)
+      repeat(20) @(posedge clk_mhdma_cfg);
+      for (int i = 0; i < BATCH3; i++) begin
+        iop_id = $urandom(); src_addr = $urandom();
+        sent_src[i] = src_addr; sent_iop[i] = iop_id;
+        send_notify_packet(qsfp_rx_vif[0], dst_mac_addr, src_mac_addr, dst_hpu_id, iop_id, src_addr);
+        repeat(10) @(posedge clk_mhdma);
+      end
+      repeat(50) @(posedge clk_mhdma_cfg);
+
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1); // SW freeze (frozen=1), no error
+      repeat(60) @(posedge clk_mhdma_cfg);                       // freeze publish (no timeout involved)
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status);
+      $display("%t > [TRACE] after SW freeze: status=0x%08x frozen=%0b wptr=%0d",
+               $time, status, status[0], status[6:1]);
+      assert (status[0]) else begin
+        $display("%t > [ERROR] SW freeze (write frozen=1) did not freeze the trace", $time);
+        error_unexpected = 1'b1;
+      end
+      assert (status[6:1] == BATCH3) else begin
+        $display("%t > [ERROR] SW freeze wptr=%0d, expected %0d", $time, status[6:1], BATCH3);
+        error_unexpected = 1'b1;
+      end
+      assert (~status[7]) else begin
+        $display("%t > [ERROR] SW freeze wrapped=1 (only %0d < DEPTH captured)", $time, BATCH3);
+        error_unexpected = 1'b1;
+      end
+      check_trace_content(BATCH3, sent_src, sent_iop);
+      $display("%t > [TRACE] SW freeze OK: froze on demand with no error, content verified", $time);
+
+      // --- Leave the trace clean: re-arm ---
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm (frozen=0)
       repeat(50) @(posedge clk_mhdma_cfg);
 
       scenario_id = scenario_id + 1;

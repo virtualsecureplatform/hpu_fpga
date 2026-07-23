@@ -22,6 +22,7 @@
 //   > coincident_error    : error_detected on the same edge as a header push (real overflow trigger)
 //   > full_throughput     : header_valid held high on consecutive cycles -> one write/cycle, exact tail
 //   > wrapped_boundary    : exactly DEPTH-1 (partial, wrapped=0) vs DEPTH (full, wrapped=1) writes
+//   > sw_freeze           : software freeze (no error, no tail) -> freezes on demand, partial & full ring
 //
 // Every freeze point also checks trace_wrapped (ring-filled flag): it must be 1 iff >= TRACE_DEPTH
 // headers were captured this session (rotate-by-wptr full ring) and 0 for a partial fill.
@@ -63,6 +64,9 @@ module tb_mhdma_pkt_trace;
   // compare fired too early (premature saturation / off-by-one). Deterministic, no model needed.
   localparam int TIMEOUT_CFG        = (TRACE_TAIL_TIMEOUT * CLK_HALF_PERIOD_MHDMA) / CLK_HALF_PERIOD_CFG;
   localparam int TIMEOUT_EARLY_WIN  = (TIMEOUT_CFG * 3) / 4;   // ~3/4 of the timeout, safely early
+  // SW freeze latency (arm/freeze CDC + freeze margin + status publish CDC): tens of cfg cycles, and
+  // safely below TIMEOUT_CFG so a freeze within this bound can only be the SW path (no error asserted).
+  localparam int FREEZE_SW_WAIT_CFG = 100;
 
 // ============================================================================================== --
 // clocks
@@ -150,6 +154,7 @@ module tb_mhdma_pkt_trace;
   logic [TRACE_AUX_W-1:0] trace_aux;
 
   logic                   trace_arm;
+  logic                   trace_freeze;
   logic                   trace_rd_en;
   logic [REG_DATA_W-1:0]  trace_rd_data;
   logic                   trace_frozen;
@@ -168,6 +173,7 @@ module tb_mhdma_pkt_trace;
     .clk_mhdma_cfg    (clk_mhdma_cfg   ),
     .resetn_mhdma_cfg (resetn_mhdma_cfg),
     .trace_arm        (trace_arm       ),
+    .trace_freeze     (trace_freeze    ),
     .trace_rd_en      (trace_rd_en     ),
     .trace_rd_data    (trace_rd_data   ),
     .trace_frozen     (trace_frozen    ),
@@ -416,6 +422,18 @@ module tb_mhdma_pkt_trace;
       repeat (30) @(posedge clk_mhdma_cfg);
       repeat (30) @(posedge clk_mhdma);
       gm_arm();
+    end
+  endtask
+
+  // Software freeze: pulse trace_freeze (cfg domain).
+  // Caller stops traffic first, then waits for the freeze to cross into clk_mhdma (wait_frozen)
+  // before mirroring it in the model (gm_force_frozen).
+  task automatic do_freeze();
+    begin
+      @(posedge clk_mhdma_cfg);
+      trace_freeze = 1'b1;
+      @(posedge clk_mhdma_cfg);
+      trace_freeze = 1'b0;
     end
   endtask
 
@@ -914,6 +932,56 @@ module tb_mhdma_pkt_trace;
     end
   endtask
 
+  // -------------------------------------------------------------------------
+  // Scenario : software-initiated freeze, NO error. SW freeze is immediate (no tail);
+  // with no error the timeout backstop can never fire, so freezing at all proves the SW path.
+  // Covers a partial ring (wrapped=0) and a full ring (wrapped=1), and that a re-arm clears it.
+  // -------------------------------------------------------------------------
+  task automatic run_scenario_sw_freeze();
+    int m, pre, exp_wptr, exp_count;
+    begin
+      scenario_start(scenario_id, "software freeze (no error): partial & full ring");
+
+      // (a) PARTIAL ring: arm, push M < DEPTH, then SW-freeze
+      m = $urandom_range(1, TRACE_DEPTH - 1);
+      do_arm();
+      push_n(m, $urandom_range(0, 5));
+      do_freeze();
+      wait_frozen(scenario_id, FREEZE_SW_WAIT_CFG); // must freeze fast, without the error timeout
+      gm_force_frozen();
+      check_wptr(scenario_id, gm_wptr);
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH); // partial -> 0
+      read_and_check(scenario_id, gm_count, gm_count >= TRACE_DEPTH);
+
+      // pushing after a SW freeze must not capture anything
+      exp_wptr  = gm_wptr;
+      exp_count = gm_count;
+      push_n($urandom_range(1, 10), $urandom_range(0, 3));
+      check_wptr(scenario_id, exp_wptr);
+      assert (gm_count == exp_count) else begin
+        $display("[ERROR:%0d]: model captured after SW freeze", scenario_id);
+        error_content = 1'b1;
+      end
+
+      // (b) FULL ring: arm, push > DEPTH (wraps), then SW-freeze -> wrapped == 1
+      pre = TRACE_DEPTH + $urandom_range(1, 30);
+      do_arm();
+      push_n(pre, $urandom_range(0, 3));
+      do_freeze();
+      wait_frozen(scenario_id, FREEZE_SW_WAIT_CFG);
+      gm_force_frozen();
+      check_wptr(scenario_id, gm_wptr);
+      check_wrapped(scenario_id, 1'b1);
+      read_and_check(scenario_id, TRACE_DEPTH, 1'b1);
+
+      // re-arm clears the SW freeze -> capturing again, not frozen
+      do_arm();
+      check_not_frozen(scenario_id, 60);
+
+      scenario_end(scenario_id, clk_mhdma_cfg);
+    end
+  endtask
+
 // ============================================================================================== --
 // Main
 // ============================================================================================== --
@@ -923,6 +991,7 @@ module tb_mhdma_pkt_trace;
     error_detected = 1'b0;
     trace_aux      = '0;
     trace_arm      = 1'b0;
+    trace_freeze   = 1'b0;
     trace_rd_en    = 1'b0;
     push_idx       = 0;
     scenario_id    = 0;
@@ -940,6 +1009,7 @@ module tb_mhdma_pkt_trace;
     run_scenario_coincident_error();
     run_scenario_full_throughput();
     run_scenario_wrapped_boundary();
+    run_scenario_sw_freeze();
 
     repeat (20) @(posedge clk_mhdma_cfg);
     end_of_test = 1'b1;
