@@ -23,7 +23,6 @@ module hpu_with_entry_1in3
   import axi_if_ksk_axi_pkg::*;
   import axi_if_glwe_axi_pkg::*;
   import axi_if_ct_axi_pkg::*;
-  import axi_if_ucore_axi_pkg::*;
   import axi_if_trc_axi_pkg::*;
   import axi_if_common_param_pkg::*;
   import axi_if_shell_axil_pkg::*;

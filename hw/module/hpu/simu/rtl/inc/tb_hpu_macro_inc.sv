@@ -10,13 +10,6 @@
 `define TB_HPU_MACRO 1
 
 //===============================
-// Work Queue register driver
-//===============================
-`define WORKQ_DRV_IF tb_hpu_ucore.maxil_ucore_if
-`define WORKQ_REG_PKG tb_hpu_ucore_regif_pkg
-
-
-//===============================
 // AXI-lite port connection
 //===============================
   `define AXIL_INSTANCE(port_prefix,signal_prefix,signal_suffix)\
