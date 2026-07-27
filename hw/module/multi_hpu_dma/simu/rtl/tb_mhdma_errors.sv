@@ -489,6 +489,7 @@ module tb_mhdma_errors;
   int scenario_id;
   logic [REG_DATA_W-1:0] reg_error;
   mhdma_error_all_t      errors_t;
+  logic [MHDMA_ERR_W-1:0] trace_errs [TRACE_DEPTH];
 
   initial begin
     maxil_drv.init();
@@ -923,7 +924,8 @@ module tb_mhdma_errors;
       for (int e = 0; e < n; e++) begin
         for (int k = 0; k < TRACE_WORDS; k++)
           maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, ew[k]);
-        rb = {ew[2], ew[1], ew[0]}; // command_t = lower 96 bits (3 words); word3 = {ts,fsm,errors}
+        rb            = {ew[2], ew[1], ew[0]};                    // command_t = lower 96 bits
+        trace_errs[e] = ew[TRACE_WORDS-1][MHDMA_ERR_W-1:0];       // word3 = {ts, fsm, errors}
         assert (rb.src_addr == exp_src[e]) else begin
           $display("%t > [ERROR] trace entry %0d src_addr=0x%04x expected 0x%04x", $time, e, rb.src_addr, exp_src[e]);
           error_unexpected = 1'b1;
@@ -1132,13 +1134,12 @@ module tb_mhdma_errors;
   // Provoke error_id: mark two HPU table entries as "current" (one-hot violation).
   task automatic set_error_id();
     begin
-      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_0_OFS, {1'b1, 3'b0, 4'h0, 24'hABCDE0});
-      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b1, 3'b0, 4'h1, 24'hABCDE1});
+      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_0_OFS, {1'b1, 3'b0, 4'h0, dst_mac_addr});
+      maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b1, 3'b0, 4'h1, dst_mac_addr});
     end
   endtask
 
-  // Restore the one-hot HPU table. error_id is a LEVEL driven by this config, so it must be
-  // restored before reading the errors register can actually clear the sticky bit.
+  // Restore the one-hot HPU table (entry 1: not current, original MAC back).
   task automatic clear_error_id();
     begin
       maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b0, 3'b0, 4'h1, 24'hABCDE1});
@@ -1147,14 +1148,15 @@ module tb_mhdma_errors;
   endtask
 
   // Send `n` notify packets and record what we drove, for check_trace_content().
-  // `ref` (not output) so only the first n entries are touched, not the whole array.
+  // `ref` (not output) so only the touched entries change; `start` appends to an earlier batch.
   task automatic send_trace_batch(input int n,
                                   ref logic [SRC_ADDR_W-1:0] exp_src [TRACE_DEPTH],
-                                  ref logic [IOP_ID_W-1:0]   exp_iop [TRACE_DEPTH]);
+                                  ref logic [IOP_ID_W-1:0]   exp_iop [TRACE_DEPTH],
+                                  input int start = 0);
     begin
       for (int i = 0; i < n; i++) begin
         iop_id = $urandom(); src_addr = $urandom();
-        exp_src[i] = src_addr; exp_iop[i] = iop_id;
+        exp_src[start+i] = src_addr; exp_iop[start+i] = iop_id;
         send_notify_packet(qsfp_rx_vif[0], dst_mac_addr, src_mac_addr, dst_hpu_id, iop_id, src_addr);
         repeat(10) @(posedge clk_mhdma);
       end
@@ -1198,17 +1200,31 @@ module tb_mhdma_errors;
   task automatic test_trace_error_mask();
     logic [REG_DATA_W-1:0] reg_err;
     int                    BATCH;
+    int                    BATCH_POST; // headers captured after the masked error, with it live
     logic [SRC_ADDR_W-1:0] sent_src [TRACE_DEPTH];
     logic [IOP_ID_W-1:0]   sent_iop [TRACE_DEPTH];
     begin
-      BATCH = 4;
+      BATCH      = 4;
+      BATCH_POST = 3;
 
       // Previous scenarios can leave sticky bits set: start from a clean errors register.
       maxil_drv.read_trans(MHDMA_SYSTEM_ERRORS_OFS, reg_err);
 
-      // --- (a) masked error: reported, but no trigger ---------------------------------------
+      // --- (a) masked error: reported and still captured, but no trigger --------------------
       maxil_drv.write_trans(MHDMA_SYSTEM_ERROR_MASK_OFS, ERR_MASK_NONE);
       trace_arm();
+
+      // reads while not frozen return 0 and do not advance the read pointer.
+      // Non-advancement is proven by the readback below: it starts at entry 0 word 0 and the
+      // content check would fail if these two reads had moved the pointer.
+      for (int i = 0; i < 2; i++) begin
+        maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_DATA_OFS, reg_err);
+        assert (reg_err == 0) else begin
+          $display("%t > [ERROR] trace_data=0x%08x while not frozen, expected 0", $time, reg_err);
+          error_unexpected = 1'b1;
+        end
+      end
+
       send_trace_batch(BATCH, sent_src, sent_iop);
 
       set_error_id();
@@ -1216,15 +1232,41 @@ module tb_mhdma_errors;
 
       trace_check_frozen(1'b0, "masked error armed the trace");
 
+      // Capture more headers with the masked error live, then freeze in software.
+      send_trace_batch(BATCH_POST, sent_src, sent_iop, BATCH);
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1); // SW freeze (frozen=1)
+      repeat(60) @(posedge clk_mhdma_cfg);
+
+      // Reads the ring and, as a side effect, fills trace_errs[] from word3.
+      trace_check_freeze(BATCH + BATCH_POST, "masked error + SW freeze", sent_src, sent_iop);
+
+      // word3 check: pre-error entries carry no error bits, post-error ones carry error_id.
+      // This is also the only end-to-end check of the word3 field offsets the register doc (and host-side
+      // decoding) rely on.
+      for (int e = 0; e < BATCH + BATCH_POST; e++) begin
+        if (e < BATCH) begin
+          assert (trace_errs[e] == 0) else begin
+            $display("%t > [ERROR] pre-error trace entry %0d captured errors=0x%03x, expected 0", $time, e, trace_errs[e]);
+            error_unexpected = 1'b1;
+          end
+        end else begin
+          assert (trace_errs[e][0]) else begin
+            $display("%t > [ERROR] post-error trace entry %0d captured errors=0x%03x, expected error_id set", $time, e, trace_errs[e]);
+            error_unexpected = 1'b1;
+          end
+        end
+      end
+
       maxil_drv.read_trans(MHDMA_SYSTEM_ERRORS_OFS, reg_err); // reports AND clears
       assert (reg_err[0]) else begin
         $display("%t > [ERROR] error_id not reported while masked (the mask gates the trigger only)", $time);
         error_unexpected = 1'b1;
       end
-      $display("%t > [TRACE] mask OK: errors=0x%08x reported, trace stayed armed", $time, reg_err);
+      $display("%t > [TRACE] mask OK: errors=0x%08x reported and captured in trace_aux, no trigger", $time, reg_err);
 
       // --- (b) same error unmasked: must freeze ---------------------------------------------
       clear_error_id();
+      maxil_drv.read_trans(MHDMA_SYSTEM_ERRORS_OFS, reg_err);
       maxil_drv.read_trans(MHDMA_SYSTEM_ERRORS_OFS, reg_err);
       assert (reg_err == 0) else begin
         $display("%t > [ERROR] errors=0x%08x not cleared before the unmasked phase", $time, reg_err);

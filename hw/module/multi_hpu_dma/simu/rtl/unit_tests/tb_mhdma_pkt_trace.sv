@@ -24,6 +24,7 @@
 //   > wrapped_boundary    : exactly DEPTH-1 (partial, wrapped=0) vs DEPTH (full, wrapped=1) writes
 //   > sw_freeze           : software freeze (no error, no tail) -> freezes on demand, partial & full ring
 //   > sw_freeze_midstream : software freeze issued WHILE capture traffic is live (gates trace_we mid-write)
+//   > sw_freeze_during_tail: software freeze pre-empts an error tail still counting down
 //
 // Every freeze point also checks trace_wrapped (ring-filled flag): it must be 1 iff >= TRACE_DEPTH
 // headers were captured this session (rotate-by-wptr full ring) and 0 for a partial fill.
@@ -1102,6 +1103,42 @@ module tb_mhdma_pkt_trace;
     end
   endtask
 
+  // -------------------------------------------------------------------------
+  // Scenario :
+  // SW freeze while an error tail is still counting down.
+  // trace_tail_done is (sw_freeze | err_freeze);
+  // -------------------------------------------------------------------------
+  task automatic run_scenario_sw_freeze_during_tail();
+    int pre, tail_pushed;
+    begin
+      scenario_start(scenario_id, "SW freeze pre-empts an in-progress error tail");
+
+      pre         = $urandom_range(3, 10);
+      tail_pushed = $urandom_range(1, TRACE_TAIL - 1); // strictly fewer than a full tail
+
+      do_arm();
+      push_n(pre, $urandom_range(0, 3));
+
+      assert_error();                     // starts the tail countdown and the timeout backstop
+      push_n(tail_pushed, $urandom_range(0, 2));
+
+      do_freeze();                        // pre-empt: tail is not filled, timeout has not expired
+      wait_frozen(scenario_id, FREEZE_SW_WAIT_CFG);
+      gm_force_frozen();
+
+      check_wptr(scenario_id, gm_wptr);
+      check_wrapped(scenario_id, gm_count >= TRACE_DEPTH);
+      read_and_check(scenario_id, gm_count, gm_count >= TRACE_DEPTH);
+
+      // clear the error before re-arming, otherwise the sticky level re-triggers immediately
+      clear_error();
+      do_arm();
+      check_not_frozen(scenario_id, 60);
+
+      scenario_end(scenario_id, clk_mhdma_cfg);
+    end
+  endtask
+
 // ============================================================================================== --
 // Main
 // ============================================================================================== --
@@ -1132,6 +1169,7 @@ module tb_mhdma_pkt_trace;
     run_scenario_wrapped_boundary();
     run_scenario_sw_freeze();
     run_scenario_sw_freeze_midstream();
+    run_scenario_sw_freeze_during_tail();
 
     repeat (20) @(posedge clk_mhdma_cfg);
     end_of_test = 1'b1;
