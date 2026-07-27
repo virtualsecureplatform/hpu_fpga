@@ -193,6 +193,24 @@ module multi_hpu_dma
   assign trace_freeze = trace_ctrl_wr_en &  trace_wr.frozen;
   assign trace_arm    = trace_ctrl_wr_en & ~trace_wr.frozen;
 
+  // Trace trigger mask + software error inject (clk_mhdma_cfg) -----------------------------------
+  mhdma_system_error_mask_t error_mask_reg;  // stored config register
+  logic                     inject_req_q;    // stored inject_err bit, delayed (edge detect)
+  logic                     inject_err_q;    // sticky injected error
+
+  // Inject on the front-edge of the stored MSB, so holding it at 1 injects once.
+  // Cleared by reading mhdma_system_errors (same strobe as the real errors)
+  always_ff @(posedge clk_mhdma_cfg) begin
+    if (~resetn_mhdma_cfg) inject_req_q <= 1'b0;
+    else                   inject_req_q <= error_mask_reg.inject_err;
+  end
+
+  always_ff @(posedge clk_mhdma_cfg) begin
+    if      (~resetn_mhdma_cfg)                         inject_err_q <= 1'b0;
+    else if (stat_rst_cfg.mhdma_errors)                 inject_err_q <= 1'b0; // clear-on-read
+    else if (error_mask_reg.inject_err & ~inject_req_q) inject_err_q <= 1'b1;
+  end
+
   // Transceivers ---------------------------------------------------------------------------------
   assign line_sel             = r_system_lane[1:0];
   assign gt_loopback          = r_system_lane[4:2];
@@ -435,7 +453,9 @@ module multi_hpu_dma
     .r_mhdma_system_trace_ctrl_wr_en                      (trace_ctrl_wr_en                                      ),
     .r_mhdma_system_trace_data                            (/* UNUSED - register output, only _upd/_rd_en used */ ),
     .r_mhdma_system_trace_data_upd                        (trace_rd_data                                         ),
-    .r_mhdma_system_trace_data_rd_en                      (trace_rd_en                                           )
+    .r_mhdma_system_trace_data_rd_en                      (trace_rd_en                                           ),
+    // packet trace trigger mask + software error inject (stored config register)
+    .r_mhdma_system_error_mask                            (error_mask_reg                                        )
   );
 
   // ============================================================================================ //
@@ -540,11 +560,12 @@ module multi_hpu_dma
     .dest_out  (stat_cfg_flat[STAT_REST_W-1:0]  )
   );
 
-  // Assemble the mhdma_system_errors word (all on cfg clock): cfg-domain master cmd-queue overflow
-  // bits on top, then the CDC'd mhdma-domain errors. Layout = packing of mhdma_error_all_t (see pkg).
+  // Assemble the mhdma_system_errors word (all on cfg clock):
+  // cfg-domain master cmd-queue overflow bits on top, then the CDC'd mhdma-domain errors.
+  // The MSB reports a software-injected error, with the same sticky / clear-on-read semantics.
   assign mhdma_error_all.master_error_cfg = master_error_cfg;
   assign mhdma_error_all.mhdma_error      = mhdma_error_t'(stat_cfg.mhdma_errors[$bits(mhdma_error_t)-1:0]);
-  assign mhdma_errors_cfg_merged          = {{(REG_DATA_W-$bits(mhdma_error_all_t)){1'b0}}, mhdma_error_all};
+  assign mhdma_errors_cfg_merged          = {inject_err_q, {(MHDMA_ERR_INJECT_BIT-$bits(mhdma_error_all_t)){1'b0}}, mhdma_error_all};
 
   // ============================================================================================ //
   // Multi-HPU-DMA bridge
@@ -653,6 +674,8 @@ module multi_hpu_dma
     .trace_frozen                   (trace_frozen                                                 ),
     .trace_wptr                     (trace_wptr                                                   ),
     .trace_wrapped                  (trace_wrapped                                                ),
+    .error_mask_cfg                 (error_mask_reg.mask[MHDMA_ERR_W-1:0]                         ),
+    .inject_err_cfg                 (inject_err_q                                                 ),
     // statistics ---------------------------------------------------------------------------------
     .stat_to_cfg                    (stat_mhdma                                                   ),
     .stat_rst                       (stat_rst_mhdma                                               ),

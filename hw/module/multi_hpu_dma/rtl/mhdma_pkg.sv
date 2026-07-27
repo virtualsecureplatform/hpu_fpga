@@ -363,6 +363,10 @@ package mhdma_pkg;
   localparam int TRACE_AUX_W = TRACE_FSM_W + $bits(mhdma_error_t);
   localparam int TRACE_AW    = $clog2(TRACE_DEPTH);
 
+  // Trace trigger mask / software error inject.
+  localparam int MHDMA_ERR_W          = $bits(mhdma_error_t);
+  localparam int MHDMA_ERR_INJECT_BIT = REG_DATA_W - 1;
+
   // =========================================================================================== //
   // CDC structs (used in multi_hpu_dma top and mhdma_bridge)
   // =========================================================================================== //

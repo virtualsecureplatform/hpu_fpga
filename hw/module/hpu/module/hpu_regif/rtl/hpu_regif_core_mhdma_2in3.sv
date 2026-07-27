@@ -1,7 +1,7 @@
 // ============================================================================================== //
 // Description  : Axi4-lite register bank
 // This file was generated with rust regmap generator:
-//  * Date:  2026-07-23
+//  * Date:  2026-07-27
 //  * Tool_version: 27d9e880d531030160fd8749c606142942d5558d
 // ---------------------------------------------------------------------------------------------- //
 // xR[n]W[na]
@@ -30,8 +30,8 @@
 //      : Value provided by the RTL. The host can read it with notify. The write data is processed by the RTL.
 // ============================================================================================== //
 module hpu_regif_core_mhdma_2in3
-import axi_if_shell_axil_pkg::*;
 import axi_if_common_param_pkg::*;
+import axi_if_shell_axil_pkg::*;
 import hpu_regif_core_mhdma_2in3_pkg::*;
 #()(
   input  logic                           clk,
@@ -94,6 +94,8 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
     , output logic [REG_DATA_W-1: 0] r_mhdma_system_trace_data
     , input  logic [REG_DATA_W-1: 0] r_mhdma_system_trace_data_upd
     , output logic r_mhdma_system_trace_data_rd_en
+  // Register IO: mhdma_system_error_mask
+    , output mhdma_system_error_mask_t r_mhdma_system_error_mask
   // Register IO: mhdma_reset_datapath
     , output mhdma_reset_datapath_t r_mhdma_reset_datapath
   // Register IO: mhdma_reset_monitor
@@ -455,6 +457,13 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
 //-- Default mhdma_system_trace_data
   logic [REG_DATA_W-1:0]mhdma_system_trace_data_default;
   assign mhdma_system_trace_data_default = 'h0;
+//-- Default mhdma_system_error_mask
+  mhdma_system_error_mask_t mhdma_system_error_mask_default;
+  always_comb begin
+    mhdma_system_error_mask_default = 'h0;
+    mhdma_system_error_mask_default.mask = 'h7fffffff;
+    mhdma_system_error_mask_default.inject_err = 'h0;
+  end
 //-- Default mhdma_reset_datapath
   mhdma_reset_datapath_t mhdma_reset_datapath_default;
   always_comb begin
@@ -830,6 +839,17 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
   assign r_mhdma_system_trace_dataD       = r_mhdma_system_trace_data_upd;
   assign r_mhdma_system_trace_data_rd_en = rd_en_ok && (rd_add[AXIL_ADD_RANGE_W-1:0] == MHDMA_SYSTEM_TRACE_DATA_OFS[AXIL_ADD_RANGE_W-1:0]);
   assign r_mhdma_system_trace_data = r_mhdma_system_trace_data_upd;
+// Register FF: mhdma_system_error_mask
+  logic [REG_DATA_W-1:0] r_mhdma_system_error_maskD;
+  assign r_mhdma_system_error_maskD = (wr_en_ok && (wr_add[AXIL_ADD_RANGE_W-1:0] == MHDMA_SYSTEM_ERROR_MASK_OFS[AXIL_ADD_RANGE_W-1:0]))? wr_data: r_mhdma_system_error_mask;
+  always_ff @(posedge clk) begin
+    if (!s_rst_n) begin
+      r_mhdma_system_error_mask       <= mhdma_system_error_mask_default;
+    end
+    else begin
+      r_mhdma_system_error_mask       <= r_mhdma_system_error_maskD;
+    end
+  end
 // Register FF: mhdma_reset_datapath
   logic [REG_DATA_W-1:0] r_mhdma_reset_datapathD;
   assign r_mhdma_reset_datapathD = (wr_en_ok && (wr_add[AXIL_ADD_RANGE_W-1:0] == MHDMA_RESET_DATAPATH_OFS[AXIL_ADD_RANGE_W-1:0]))? wr_data: r_mhdma_reset_datapath;
@@ -1323,6 +1343,9 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
           end
           MHDMA_SYSTEM_TRACE_DATA_OFS[AXIL_ADD_RANGE_W-1:0]: begin // register mhdma_system_trace_data
             axil_rdataD = r_mhdma_system_trace_data;
+          end
+          MHDMA_SYSTEM_ERROR_MASK_OFS[AXIL_ADD_RANGE_W-1:0]: begin // register mhdma_system_error_mask
+            axil_rdataD = r_mhdma_system_error_mask;
           end
           MHDMA_RESET_DATAPATH_OFS[AXIL_ADD_RANGE_W-1:0]: begin // register mhdma_reset_datapath
             axil_rdataD = r_mhdma_reset_datapath;

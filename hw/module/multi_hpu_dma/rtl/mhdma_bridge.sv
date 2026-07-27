@@ -107,6 +107,8 @@ module mhdma_bridge
   output logic                                    trace_frozen,
   output logic [$clog2(TRACE_DEPTH)-1:0]          trace_wptr,
   output logic                                    trace_wrapped,
+  input  logic [MHDMA_ERR_W-1:0]                  error_mask_cfg, // 1 = this error arms the trace
+  input  logic                                    inject_err_cfg, // sticky software error inject
   // QSFP system interface ----------------------------------------------------
   // == TX
   output logic [MRMAC_AXIS_W-1:0]                 qsfp_tx_tdata,
@@ -247,7 +249,7 @@ module mhdma_bridge
 
   // Errors
   mhdma_error_t   mhdma_errors;
-  logic           error_detected; // OR of all mhdma-domain errors; arms the decoder packet-trace window
+  logic           error_detected; // masked OR of the mhdma errors, or an inject; arms the trace window
   decoder_error_t decoder_error;
 
   format_error_t format_error;
@@ -261,6 +263,10 @@ module mhdma_bridge
   // Decoded-header tap (FIFO push, pre-buffer) feeding the packet-trace debug buffer.
   command_t decoder_header_data;
   logic     decoder_header_valid;
+
+  // Trace trigger mask / inject, synchronized into clk_mhdma.
+  logic [MHDMA_ERR_W-1:0] error_mask_mhdma;
+  logic                   inject_err_mhdma;
 
   // Master module does the controls for sending read request and Notifies requests
   mhdma_master mhdma_master (
@@ -496,7 +502,30 @@ module mhdma_bridge
   // ==============================================================================================
   // stat_to_cfg is not cdc'd yet here. Name is just stating a direction.
   assign stat_to_cfg.mhdma_errors = {{(32-$bits(mhdma_error_t)){1'b0}}, mhdma_errors};
-  assign error_detected = |mhdma_errors;
+
+  // Trigger mask CDC (cfg -> mhdma).
+  // The config is quasi-static and per-bit coherency is not required
+  xpm_cdc_array_single_wrapper #(
+    .WIDTH           (MHDMA_ERR_W    ),
+    .CDC_SYNC_STAGES (CDC_SYNC_STAGES)
+  ) cdc_error_mask (
+    .src_clk  (clk_mhdma_cfg   ),
+    .dest_clk (clk_mhdma       ),
+    .src_in   (error_mask_cfg  ),
+    .dest_out (error_mask_mhdma)
+  );
+
+  xpm_cdc_single_wrapper #(
+    .CDC_SYNC_STAGES (CDC_SYNC_STAGES),
+  ) cdc_inject_err (
+    .src_clk  (clk_mhdma_cfg   ),
+    .dest_clk (clk_mhdma       ),
+    .src_in   (inject_err_cfg  ),
+    .dest_out (inject_err_mhdma)
+  );
+
+  // Masked errors, or a software inject, arm the trace.
+  assign error_detected = |(mhdma_errors & error_mask_mhdma) | inject_err_mhdma;
 
   assign trace_fsm_state = {formatter_stat.fsm_formatter,
                             slave_stat.fsm_cem,
