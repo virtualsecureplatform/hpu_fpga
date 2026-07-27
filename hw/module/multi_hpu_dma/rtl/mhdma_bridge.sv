@@ -516,7 +516,7 @@ module mhdma_bridge
   );
 
   xpm_cdc_single_wrapper #(
-    .CDC_SYNC_STAGES (CDC_SYNC_STAGES),
+    .CDC_SYNC_STAGES (CDC_SYNC_STAGES)
   ) cdc_inject_err (
     .src_clk  (clk_mhdma_cfg   ),
     .dest_clk (clk_mhdma       ),
