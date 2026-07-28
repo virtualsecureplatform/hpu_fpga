@@ -328,9 +328,8 @@ module pep_mmacc_splitc_sxt_reorder
 // ============================================================================================== --
 // Output pipe
 // ============================================================================================== --
-// Configured as backward register to break only control.
-// Only control : it is tight too tight.
-// Adding pipe on data increases TNS non-negleably (+50%);
+// Backward register (type 2) only: cuts just the rdy backpressure path, which is the/ timing-critical one here.
+// Keep it control-only: a forward register on the data path was tried (depth-2, type {1,2}) and made TNS ~50% worse. do not re-add it.
   fifo_element #(
     .WIDTH          (RD_COEF_NB * MOD_Q_W + 1),
     .DEPTH          (1),
