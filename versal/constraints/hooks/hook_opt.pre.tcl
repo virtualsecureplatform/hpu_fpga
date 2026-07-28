@@ -6,6 +6,41 @@ puts "current directory: $cdir"
 source ${cdir}/../../uservars.tcl
 puts "current PSI is: $::ntt_psi"
 
+#################################################################################################
+# Stop opt_design from undoing the fanout work this design already asks for
+#################################################################################################
+# hook_opt.post.tcl runs `opt_design -merge_equivalent_drivers`, which merges logically equivalent drivers
+# Exactly what fanout replication and per-generate-instance control pipes produce.
+# In this design that switch REVERSES committed work rather than merely skipping it.
+#
+# The remedy is EQUIVALENT_DRIVER_OPT KEEP on the affected drivers, NOT dropping the flag:
+# global merge is what holds control sets and area down.
+
+# please note that signals are explicitely named here for simplicity
+set keep_repl_cells [get_cells -quiet -hier -regexp -filter {
+       NAME =~ ".*/ntt_core_gf64_ntw_core_(rd|wr)/s0_iter_reg\[.*"
+    || NAME =~ ".*/ntt_core_gf64_ntw_core_(rd|wr)/s1_pos_reg\[.*"
+    || NAME =~ ".*/ntt_core_gf64_ntw_rot/s1_rot_part2_factor_reg\[.*"
+    || NAME =~ ".*/pep_mmacc_infifo/data_sample.*"
+    || NAME =~ ".*pep_mmacc_splitc_sxt_rot/x0_gram_sxt_rd_data_avail.*"
+    || NAME =~ ".*pep_mmacc_splitc_sxt_join/join_fifo/gen_depth_gt_2.no_depth_is_power_of_2_gen.wp_lsb.*"
+    || NAME =~ ".*/regfile/gen_seq_loop\[.*\].gen_word_loop\[.*\].regf_ram_unit/s1_rd_en_sr_reg\[.*"
+    || NAME =~ ".*/regfile/gen_seq_loop\[.*\].gen_word_loop\[.*\].regf_ram_unit/s1_rd_pe_id_1h_sr_reg\[.*"
+    || NAME =~ ".*/regfile/gen_seq_loop\[.*\].gen_word_loop\[.*\].regf_ram_unit/s1_rd_side_sr_reg\[.*"
+    || NAME =~ ".*/pe_alu/p2_seq_id_reg\[.*"
+}]
+
+puts "INFO> EQUIVALENT_DRIVER_OPT KEEP: protecting [llength $keep_repl_cells] cells from opt_design -merge_equivalent_drivers"
+
+if {[llength $keep_repl_cells] > 0} {
+    set_property EQUIVALENT_DRIVER_OPT KEEP $keep_repl_cells
+} else {
+    puts "CRITICAL WARNING> EQUIVALENT_DRIVER_OPT matched 0 cells."
+}
+
+#################################################################################################
+# Clocks and pblock floorplan
+#################################################################################################
 # Rename the clock gated clock to something sensible
 create_generated_clock -name prc_clk [get_pins -of_objects [get_clocks clkout1_primitive]]
 

@@ -43,6 +43,23 @@ if {[llength ${PS9_IRQ_pin}] == 1} {
 # Enable GCLK Deskew
 set_property GCLK_DESKEW CALIBRATED [get_nets hpu_plug_wrapper/hpu_plug_i/shell_wrapper/clock_reset/usr_clk_wiz/inst/clock_primitive_inst/clk_out1]
 
+#################################################################################################
+# Forced replication of the sxt_reorder high-fanout nets
+#################################################################################################
+# FORCE_MAX_FANOUT (UG912) is used instead of max_fanout because it:
+#   1. is not skippable - max_fanout replication may be dropped when the tool sees no timing gain;
+#   2. counts site-pin loads, the right metric for LUTRAM banks (8 RAMD per SLICEM);
+#   3. acts at place_design, so no resynthesis is needed.
+# UG949 advises against max_fanout on global high-fanout signals anyway.
+#
+# Nets are located by connectivity (cells -> pins -> nets), never by name: they have no stable synthesized name across runs.
+# This is why this is NOT done in xdc near RTL : no stable name for get_nets.
+source $::env(PROJECT_DIR)/versal/scripts/lib/fanout_utils.tcl
+
+force_fanout_cells "reorder LUTRAM write enable"  [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/gen_bank\[.*\]\.mem_reg.*"}] {REF_PIN_NAME == "WE"} 64
+force_fanout_cells "reorder step1_pipe data CE"   [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/step1_pipe/.*data_kept_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64
+force_fanout_cells "reorder step2_stage1 data CE" [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/step2_stage1_pipeline/.*data_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64
+
 ### pblocks
 
 # Constraining the clock source and reset roots to minimize skew
