@@ -308,6 +308,8 @@ uint32_t timestamp;
 extern uint8_t node_mask;
 extern uint16_t b2b_pool_start_addr;
 extern uint16_t b2b_pool_size;
+extern uint32_t zhc_cache_addr;
+extern uint32_t zhc_cache_size;
 extern volatile iop_state_t iop_state[IOP_ID_MAX_COUNT];
 extern volatile src_store_t src_store;
 extern volatile dst_store_t dst_store;
@@ -852,6 +854,8 @@ static void vTaskFuncMain( void )
             node_mask = ucore_cfg.node_mask;
             b2b_pool_start_addr = ucore_cfg.ct_user_size;
             b2b_pool_size = ucore_cfg.b2b_size;
+            zhc_cache_addr = ucore_cfg.zhc_cache_addr;
+            zhc_cache_size = ucore_cfg.zhc_cache_size;
 
             if (timestamp != new_timestamp) { // this means user SW (tfhe-rs) has been restarted
                 PLL_DBG("parse_iop", "timestamp %d changed => reset inter-HPU struct", new_timestamp);
