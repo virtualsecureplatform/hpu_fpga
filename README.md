@@ -364,6 +364,12 @@ sudo insmod /opt/v80/ami/bd569ee/ami.ko
 ```
 Now ```ami_tool``` is available in `zama_aved/sw/AMI/app/build/` directory. You can copy it in your ~/.local/bin or modify your PATH.
 
+> [!IMPORTANT]
+> When using TFHE-rs HPU backend, sourcing setup_hpu.sh defines env variable AMI_PATH which is the default directory from which ami.ko is loaded.
+> If you modify or create your own ami.ko and you want HPU backend to load it after FPGA loading, you need to modify this AMI_PATH.
+> Due to sudoers rules, you need to place your ami.ko in a directory in /opt/v80/ami folder like /opt/v80/ami/my_ami_driver/
+> and then set env variable accordingly `export AMI_PATH=/opt/v80/ami/my_ami_driver/`.
+
 #### How to use ami_tool
 
 Through a few examples:
