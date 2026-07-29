@@ -59,8 +59,6 @@ source $::env(PROJECT_DIR)/versal/scripts/lib/fanout_utils.tcl
 force_fanout_cells "reorder LUTRAM write enable"  [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/gen_bank\[.*\]\.mem_reg.*"}] {REF_PIN_NAME == "WE"} 64
 force_fanout_cells "reorder step1_pipe data CE"   [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/step1_pipe/.*data_kept_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64
 force_fanout_cells "reorder step2_stage1 data CE" [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/step2_stage1_pipeline/.*data_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64
-force_fanout_cells "reorder out_pipe data CE"     [get_cells -quiet -hier -regexp -filter {NAME =~ ".*sxt_reorder/out_pipe/.*data_kept_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64
-force_fanout_cells "ksk_if axi_r fifo data CE"    [get_cells -quiet -hier -regexp -filter {NAME =~ ".*ksk_if_axi4_read/gen_pc_loop\[.*\]\.axi_r_fifo_element/.*data(_kept)?_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64
 
 ### pblocks
 
