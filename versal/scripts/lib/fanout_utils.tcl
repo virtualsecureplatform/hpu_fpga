@@ -32,7 +32,17 @@ proc force_fanout_cells {label cells pin_filter limit {mode ""}} {
         puts "\[CRITICAL WARNING\] FORCE_MAX_FANOUT '$label': pins found but no nets. NOT applied."
         return
     }
-    if {$mode ne ""} { set_property MAX_FANOUT_MODE $mode $nets }
-    set_property FORCE_MAX_FANOUT $limit $nets
-    puts "\[INFO\] FORCE_MAX_FANOUT '$label' = $limit mode='$mode' applied to [llength $nets] net(s), from [llength $cells] cell(s) / [llength $pins] pin(s)"
+
+    # The property is only legal on the segment driven by the register/LUT (UG912 p201). Load pins give leaf segments, on which it is silently ineffective, so walk to the driver.
+    set drv_pins [get_pins -quiet -leaf -of_objects $nets -filter {DIRECTION == OUT}]
+    set drv_nets [lsort -unique [get_nets -quiet -of_objects $drv_pins]]
+    if {[llength $drv_nets] == 0} {
+        puts "\[CRITICAL WARNING\] FORCE_MAX_FANOUT '$label': [llength $nets] net(s) but no driver segment. NOT applied."
+        return
+    }
+
+    if {$mode ne ""} { set_property MAX_FANOUT_MODE $mode $drv_nets }
+    set_property FORCE_MAX_FANOUT $limit $drv_nets
+    puts "\[INFO\] FORCE_MAX_FANOUT '$label' = $limit mode='$mode' applied to [llength $drv_nets] driver net(s) (from [llength $cells] cell(s) / [llength $pins] pin(s) / [llength $nets] leaf net(s))"
+    foreach n $drv_nets { puts "\[INFO\]     $label net: [get_property NAME $n] fanout=[get_property -quiet FLAT_PIN_COUNT $n]" }
 }

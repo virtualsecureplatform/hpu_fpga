@@ -56,7 +56,7 @@ set_property GCLK_DESKEW CALIBRATED [get_nets hpu_plug_wrapper/hpu_plug_i/shell_
 # This is why this is NOT done in xdc near RTL : no stable name for get_nets.
 source $::env(PROJECT_DIR)/versal/scripts/lib/fanout_utils.tcl
 
-force_fanout_cells "reorder LUTRAM write enable"  [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/gen_bank\[.*\]\.mem_reg.*"}] {REF_PIN_NAME == "WE"} 64
+force_fanout_cells "reorder LUTRAM write enable"  [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/gen_bank\[.*\]\.mem_reg.*"}] {REF_PIN_NAME == "WE"} 64 CLOCK_REGION
 force_fanout_cells "reorder step1_pipe data CE"   [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/step1_pipe/.*data_kept_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64
 force_fanout_cells "reorder step2_stage1 data CE" [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pep_mmacc_splitc_sxt_reorder/step2_stage1_pipeline/.*data_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64
 force_fanout_cells "pem_load regf_data fifo CE"   [get_cells -quiet -hier -regexp -filter {NAME =~ ".*/pem_load/regf_data_fifo_element/.*type3_gen\.fifo_element/.*data_reg\[.*\]"}] {REF_PIN_NAME == "CE"} 64 CLOCK_REGION
