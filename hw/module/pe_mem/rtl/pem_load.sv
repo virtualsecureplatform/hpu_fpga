@@ -164,12 +164,14 @@ module pem_load
       logic     s0_cmd_vld;
       logic     s0_cmd_rdy;
       logic     [AXI4_ADD_W-1:0] s0_cmd_add_init;
+      logic     [PAGE_BYTES_WW-1:0] s0_cmd_page_word_remain;
 
       pem_cmd_t sm1_cmd;
       logic     sm1_cmd_vld;
       logic     sm1_cmd_rdy;
       logic     [AXI4_ADD_W-1:0] sm1_cmd_add_init;
       logic     [AXI4_ADD_W-1:0] sm1_cmd_add_init_tmp;
+      logic     [PAGE_BYTES_WW-1:0] sm1_cmd_page_word_remain_tmp;
 
       pem_cmd_t sm2_cmd;
       logic     sm2_cmd_vld;
@@ -178,6 +180,7 @@ module pem_load
 
       assign sm2_cmd_add_init     = sm2_cmd.cid * CT_MEM_BYTES;
       assign sm1_cmd_add_init_tmp = sm1_cmd_add_init + ct_mem_addr[gen_p];
+      assign sm1_cmd_page_word_remain_tmp = PAGE_AXI4_DATA - sm1_cmd_add_init_tmp[PAGE_BYTES_W-1:AXI4_DATA_BYTES_W];
 
       fifo_reg #(
         .WIDTH       (PEM_CMD_W),
@@ -216,7 +219,7 @@ module pem_load
       );
 
       fifo_element #(
-        .WIDTH          (PEM_CMD_W+AXI4_ADD_W),
+        .WIDTH          (PEM_CMD_W+AXI4_ADD_W+PAGE_BYTES_WW),
         .DEPTH          (1),
         .TYPE_ARRAY     (4'h3),// TOREVIEW
         .DO_RESET_DATA  (1'b0),
@@ -225,11 +228,11 @@ module pem_load
         .clk      (clk),
         .s_rst_n  (s_rst_n),
 
-        .in_data  ({sm1_cmd_add_init_tmp,sm1_cmd}),
+        .in_data  ({sm1_cmd_page_word_remain_tmp,sm1_cmd_add_init_tmp,sm1_cmd}),
         .in_vld   (sm1_cmd_vld),
         .in_rdy   (sm1_cmd_rdy),
 
-        .out_data ({s0_cmd_add_init,s0_cmd}),
+        .out_data ({s0_cmd_page_word_remain,s0_cmd_add_init,s0_cmd}),
         .out_vld  (s0_cmd_vld),
         .out_rdy  (s0_cmd_rdy)
       );
@@ -253,6 +256,7 @@ module pem_load
       logic [AXI4_WORD_PER_PATH_WW-1:0] req_axi_word_remainD;
       logic                             req_last_axi_word_remain;
       logic [AXI4_WORD_PER_PATH_WW-1:0] req_axi_word_remain_init;
+      logic [PAGE_BYTES_WW-1:0]         req_page_word_remain;
 
       logic                             req_pbs_first_burst;
       logic                             req_pbs_first_burstD;
@@ -260,9 +264,9 @@ module pem_load
       logic                             req_send_axi_cmd;
 
       assign req_axi_word_remainD     = req_send_axi_cmd ?
-                                            req_last_axi_word_remain ? req_axi_word_remain_init : req_axi_word_remain - req_axi_word_nb :
+                                            req_last_axi_word_remain ? req_axi_word_remain_init : req_axi_word_remain - req_page_word_remain :
                                             req_axi_word_remain;
-      assign req_last_axi_word_remain = req_axi_word_remain == req_axi_word_nb;
+      assign req_last_axi_word_remain = (req_axi_word_remain <= req_page_word_remain);
       assign req_axi_word_remain_init = AXI4_WORD_PER_PATH;
       assign req_pbs_first_burstD     = req_send_axi_cmd ? req_last_axi_word_remain ? 1'b1 : 1'b0 : req_pbs_first_burst;
 
@@ -280,7 +284,6 @@ module pem_load
       logic [AXI4_ADD_W-1:0]    req_add;
       logic [AXI4_ADD_W-1:0]    req_addD;
       logic [AXI4_ADD_W-1:0]    req_add_start;
-      logic [PAGE_BYTES_WW-1:0] req_page_word_remain;
       logic                     req_blwe_done;
 
       // compute the address offset during the cycle when the command is sent to rcp FIFO
@@ -293,7 +296,7 @@ module pem_load
         if (!s_rst_n) req_add <= '0;
         else          req_add <= req_addD;
 
-      assign req_page_word_remain = PAGE_AXI4_DATA - req_add_start[PAGE_BYTES_W-1:AXI4_DATA_BYTES_W];
+      assign req_page_word_remain = req_pbs_first_burst ? s0_cmd_page_word_remain : PAGE_BYTES_WW'(PAGE_AXI4_DATA);
       assign req_axi_word_nb = req_page_word_remain < req_axi_word_remain ? req_page_word_remain : req_axi_word_remain;
       assign s0_axi.arid     = BLWE_AXI_ARID;
       assign s0_axi.arsize   = AXI4_DATA_BYTES_W;

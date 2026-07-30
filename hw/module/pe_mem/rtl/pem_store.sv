@@ -217,6 +217,7 @@ module pem_store
   logic     [PEM_PC:0][AXI4_ADD_W-1:0] s0_cmd_add_init;
   logic     [PEM_PC:0]                 s0_cmd_vld;
   logic     [PEM_PC:0]                 s0_cmd_rdy;
+  logic     [PEM_PC:0][PAGE_BYTES_WW-1:0] s0_cmd_page_word_remain;
 
   logic     [PEM_PC_MAX:0][AXI4_ADD_W-1:0] ct_mem_addr_ext;
 
@@ -229,8 +230,10 @@ module pem_store
       logic                  sm1_cmd_rdy;
       logic [AXI4_ADD_W-1:0] sm1_cmd_add_init;
       logic [AXI4_ADD_W-1:0] sm1_cmd_add_init_tmp;
+      logic [PAGE_BYTES_WW-1:0] sm1_cmd_page_word_remain_tmp;
 
       assign sm1_cmd_add_init_tmp = sm1_cmd_add_init + ct_mem_addr_ext[gen_i];
+      assign sm1_cmd_page_word_remain_tmp = PAGE_AXI4_DATA - sm1_cmd_add_init_tmp[PAGE_BYTES_W-1:AXI4_DATA_BYTES_W];
 
       fifo_element #(
         .WIDTH          (AXI4_ADD_W+PEM_CMD_W),
@@ -252,7 +255,7 @@ module pem_store
       );
 
       fifo_element #(
-        .WIDTH          (AXI4_ADD_W+PEM_CMD_W),
+        .WIDTH          (AXI4_ADD_W+PEM_CMD_W+PAGE_BYTES_WW),
         .DEPTH          (1),
         .TYPE_ARRAY     (4'h3), // TOREVIEW
         .DO_RESET_DATA  (1'b0),
@@ -261,11 +264,11 @@ module pem_store
         .clk     (clk),
         .s_rst_n (s_rst_n),
 
-        .in_data ({sm1_cmd_add_init_tmp,sm1_cmd}),
+        .in_data ({sm1_cmd_page_word_remain_tmp,sm1_cmd_add_init_tmp,sm1_cmd}),
         .in_vld  (sm1_cmd_vld),
         .in_rdy  (sm1_cmd_rdy),
 
-        .out_data({s0_cmd_add_init[gen_i],s0_cmd[gen_i]}),
+        .out_data({s0_cmd_page_word_remain[gen_i],s0_cmd_add_init[gen_i],s0_cmd[gen_i]}),
         .out_vld (s0_cmd_vld[gen_i]),
         .out_rdy (s0_cmd_rdy[gen_i])
       );
@@ -331,6 +334,7 @@ module pem_store
       //-------------------------------------
       logic [AXI4_WORD_PER_PC_WW_L-1:0] req_axi_word_remain; // counts from AXI4_WORD_PER_PC_L included to 0 - decremented
       logic [AXI4_WORD_PER_PC_WW_L-1:0] req_axi_word_remainD;
+      logic [PAGE_BYTES_WW-1:0]         req_page_word_remain;
 
       logic [AXI4_LEN_W:0]              req_axi_word_nb; // = axi_len + 1. The size AXI4_LEN_W+1 correspond to the axi bus size +1
       logic                             req_last_axi_word_remain;
@@ -343,8 +347,8 @@ module pem_store
 
       logic                             req_send_axi_cmd;
 
-      assign req_axi_word_remainD     = req_send_axi_cmd ? req_last_axi_word_remain ? AXI4_WORD_PER_PC_L : req_axi_word_remain - req_axi_word_nb : req_axi_word_remain;
-      assign req_last_axi_word_remain = req_axi_word_remain == req_axi_word_nb;
+      assign req_axi_word_remainD     = req_send_axi_cmd ? req_last_axi_word_remain ? AXI4_WORD_PER_PC_L : req_axi_word_remain - req_page_word_remain : req_axi_word_remain;
+      assign req_last_axi_word_remain = (req_axi_word_remain <= req_page_word_remain);
       assign req_pbs_first_burstD     = req_send_axi_cmd ? req_last_axi_word_remain ? 1'b1 : 1'b0 : req_pbs_first_burst;
       assign req_burst_cnt_m1D        = req_send_axi_cmd ? req_last_axi_word_remain ? '0 : req_burst_cnt_m1 + 1 : req_burst_cnt_m1;
 
@@ -366,7 +370,6 @@ module pem_store
       logic [AXI4_ADD_W-1:0]    req_add;
       logic [AXI4_ADD_W-1:0]    req_addD;
       logic [AXI4_ADD_W-1:0]    req_add_start;
-      logic [PAGE_BYTES_WW-1:0] req_page_word_remain;
 
       assign req_add_start = req_pbs_first_burst ? s0_cmd_add_init[gen_p] : req_add;
       assign req_addD      = req_send_axi_cmd ? req_add_start + req_axi_word_nb*AXI4_DATA_BYTES : req_add;
@@ -375,7 +378,7 @@ module pem_store
         if (!s_rst_n) req_add <= '0;
         else          req_add <= req_addD;
 
-      assign req_page_word_remain = PAGE_AXI4_DATA - req_add_start[PAGE_BYTES_W-1:AXI4_DATA_BYTES_W];
+      assign req_page_word_remain = req_pbs_first_burst ? s0_cmd_page_word_remain[gen_p] : PAGE_BYTES_WW'(PAGE_AXI4_DATA);
       assign req_axi_word_nb = req_page_word_remain < req_axi_word_remain ? req_page_word_remain : req_axi_word_remain;
       assign s0_axi.awid     = BLWE_AXI_ARID;
       assign s0_axi.awsize   = AXI4_DATA_BYTES_W;
