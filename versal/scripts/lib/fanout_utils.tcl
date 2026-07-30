@@ -14,9 +14,10 @@
 #   cells      - cell collection whose input pins receive the high-fanout net
 #   pin_filter - braced filter selecting the loaded pins, e.g. {REF_PIN_NAME == "CE"}
 #   limit      - FORCE_MAX_FANOUT value (site-pin loads per replica)
+#   mode       - optional MAX_FANOUT_MODE (CLOCK_REGION|SLR|MACRO): clusters replicas with their loads. UG912 v2025.2 p263. Without it replication splits by count only.
 #
 # Every query reports its count; a 0 anywhere means the property was NOT applied.
-proc force_fanout_cells {label cells pin_filter limit} {
+proc force_fanout_cells {label cells pin_filter limit {mode ""}} {
     if {[llength $cells] == 0} {
         puts "\[CRITICAL WARNING\] FORCE_MAX_FANOUT '$label': 0 CELLS matched. NOT applied."
         return
@@ -31,6 +32,7 @@ proc force_fanout_cells {label cells pin_filter limit} {
         puts "\[CRITICAL WARNING\] FORCE_MAX_FANOUT '$label': pins found but no nets. NOT applied."
         return
     }
+    if {$mode ne ""} { set_property MAX_FANOUT_MODE $mode $nets }
     set_property FORCE_MAX_FANOUT $limit $nets
-    puts "\[INFO\] FORCE_MAX_FANOUT '$label' = $limit applied to [llength $nets] net(s), from [llength $cells] cell(s) / [llength $pins] pin(s)"
+    puts "\[INFO\] FORCE_MAX_FANOUT '$label' = $limit mode='$mode' applied to [llength $nets] net(s), from [llength $cells] cell(s) / [llength $pins] pin(s)"
 }
