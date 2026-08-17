@@ -4314,7 +4314,7 @@
         },
         {
           "name": "fsm_value",
-          "description": "Packed read-only snapshot of all internal FSM states: [26:24] formatter, [20:18] slave notify-rx, [17:15] slave ciphertext-emission, [11:9] master read-request, [5:3] master notify",
+          "description": "Live FSM snapshot: [22:20] formatter, [17:16] slave ciphertext-emission, [13:12] slave notify-rx, [9:8] master burst, [5:4] master read-request, [1:0] master notify",
           "owner": "Kernel",
           "read_access": "Read",
           "write_access": "None",
@@ -4502,7 +4502,7 @@
         },
         {
           "name": "error_mask",
-          "description": "Packet-trace trigger mask + software error inject. mask: 1 = this error arms the trace, 0 = ignored for triggering. The errors register and the captured trace still log ALL errors; the mask affects the TRIGGER only. Mask bits map 1:1 onto errors[11:0]; errors[13:12] are cfg-clock errors that live outside the trace trigger path, so they are not maskable and never arm the trace. Bits above the mhdma error width are ignored. inject_err (bit 31): write 0->1 to inject a synthetic error, which triggers the trace and sets errors[31]; it is sticky and cleared by READING mhdma_system.errors, exactly like a real error, so re-injecting needs a fresh 0->1. Inject exercises the trace trigger/freeze/readback path only, NOT error detection. Set the mask BEFORE arming the trace. Default = mask all-1s, inject_err 0 (trigger on any error).",
+          "description": "Packet-trace trigger mask + software error inject.",
           "owner": "User",
           "read_access": "Read",
           "write_access": "Write",

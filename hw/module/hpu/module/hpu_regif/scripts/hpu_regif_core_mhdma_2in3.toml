@@ -43,7 +43,7 @@ offset= 0x0
   field.retry_max_read_request = {size_b=8, offset_b=8, default={Cst=0xA}, description="Maximum number of retries to do before stopping and triggering error"}
 
 [section.mhdma_system.register.fsm_value]
-  description="Packed read-only snapshot of all internal FSM states: [26:24] formatter, [20:18] slave notify-rx, [17:15] slave ciphertext-emission, [11:9] master read-request, [5:3] master notify"
+  description="Live FSM snapshot: [22:20] formatter, [17:16] slave ciphertext-emission, [13:12] slave notify-rx, [9:8] master burst, [5:4] master read-request, [1:0] master notify"
   owner="Kernel"
   read_access="Read"
   write_access="None"
@@ -65,7 +65,7 @@ offset= 0x0
   duplicate=["_0", "_1", "_2", "_3", "_4", "_5", "_6", "_7"]
 
 [section.mhdma_system.register.trace_ctrl]
-  description="Packet-trace control + status. WRITE (WriteNotify) is a command decoded from the frozen bit: write frozen=1 to freeze capture now (SW freeze, no tail, hold the ring for readback); write frozen=0 to flush the buffer and re-arm circular capture. Once armed, on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data (reads while not frozen return 0 and do not advance). Clear the error condition (read mhdma_system.errors) BEFORE re-arming: re-arm does not clear a still-asserted sticky error, so the buffer will immediately re-trigger and re-freeze if you arm with an error still live. Read the buffer per the wrapped flag: if wrapped=1 the ring is full, read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr); if wrapped=0 only entries [0 .. wptr-1] are valid (fewer than TRACE_DEPTH headers captured this session), read those in order and do not rotate."
+  description="Packet-trace control and status: write frozen=1 to freeze capture now, or frozen=0 to flush and re-arm."
   owner="Kernel"
   read_access="Read"
   write_access="WriteNotify"
@@ -74,7 +74,7 @@ offset= 0x0
   field.wrapped = {size_b=1, offset_b=7, default={Cst=0x0}, description="Ring wrapped since last re-arm: 1 = all TRACE_DEPTH entries valid (rotate by wptr); 0 = only entries [0 .. wptr-1] valid (partial fill, no rotation). Re-arm does not clear the RAM, so slots beyond a partial fill hold stale prior-session data"}
 
 [section.mhdma_system.register.trace_data]
-  description="Packet-trace data window (ReadNotify). Each read returns the next 32-bit word of the frozen trace and advances the read pointer. Entries are 4 words each: word0=command[31:0], word1=command[63:32], word2=command[95:64], word3={errors[11:0] @[11:0], fsm_state[12:0] @[24:12], timestamp[6:0] @[31:25]} where errors are the mhdma_system.errors mhdma-clock bits [11:0] (the [13:12] cfg-clock overflow bits are not captured) and fsm_state packs {fsm_formatter[2:0], fsm_cem[1:0], fsm_notify_rx[1:0], fsm_burst[1:0], fsm_read_req[1:0], fsm_notify[1:0]}. Read 4*(valid entries) words; re-arming via trace_ctrl resets the read pointer."
+  description="Packet-trace read window: each read returns the next 32-bit word of the frozen trace and advances the read pointer."
   owner="Kernel"
   read_access="ReadNotify"
   write_access="None"

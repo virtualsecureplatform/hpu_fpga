@@ -1,5 +1,5 @@
 # HPU_REGIF_CORE documentation
-**Date**: 2026-07-27
+**Date**: 2026-07-28
 **Tool Version**: 27d9e880d531030160fd8749c606142942d5558d
 
 ## RegisterMap Overview
@@ -4040,7 +4040,7 @@ Below is a summary of all the registers in the current section mhdma_system:
 | [timeout_notify](#register-mhdma-systemtimeout-notify) | 0x50004 | RW |  Timeout: time before re-launching a request, in clock cycles |
 | [timeout_read_req](#register-mhdma-systemtimeout-read-req) | 0x50008 | RW |  Timeout: time before re-launching a request, in clock cycles |
 | [retry_max](#register-mhdma-systemretry-max) | 0x5000c | RW |  Timeout: maximum number of times we should do retries for both Notify & Retry  |
-| [fsm_value](#register-mhdma-systemfsm-value) | 0x50010 | R. |  Packed read-only snapshot of all internal FSM states: [26:24] formatter, [20:18] slave notify-rx, [17:15] slave ciphertext-emission, [11:9] master read-request, [5:3] master notify |
+| [fsm_value](#register-mhdma-systemfsm-value) | 0x50010 | R. |  Live FSM snapshot: [22:20] formatter, [17:16] slave ciphertext-emission, [13:12] slave notify-rx, [9:8] master burst, [5:4] master read-request, [1:0] master notify |
 | [errors](#register-mhdma-systemerrors) | 0x50014 | R. |  Sticky error flags, cleared by reading this register: [31] software-injected error (see error_mask.inject_err), [13] master read-request cmd queue overflow, [12] master notify cmd queue overflow, [11] formatter master cmd discard, [10] formatter slave cmd discard, [9] formatter payload gap, [8] decoder rx FIFO overflow, [7] slave read-request cmd queue overflow, [6] AXI4 HBM read response error, [5] master max retry read-request hit, [4] master max retry notify hit, [3] ciphertext sequence number mismatch, [2:1] per-PC AXI4 HBM write error, [0] multi-HPU one-hot ID violation |
 | [hpu_id_0](#register-mhdma-systemhpu-id-0) | 0x50018 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
 | [hpu_id_1](#register-mhdma-systemhpu-id-1) | 0x5001c | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
@@ -4052,7 +4052,7 @@ Below is a summary of all the registers in the current section mhdma_system:
 | [hpu_id_7](#register-mhdma-systemhpu-id-7) | 0x50034 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
 | [trace_ctrl](#register-mhdma-systemtrace-ctrl) | 0x50038 | RW |  Packet-trace control + status. WRITE (WriteNotify) is a command decoded from the frozen bit: write frozen=1 to freeze capture now (SW freeze, no tail, hold the ring for readback); write frozen=0 to flush the buffer and re-arm circular capture. Once armed, on the first mhdma-domain error it keeps capturing TRACE_DEPTH/2 more entries then freezes (~half the headers before the fault, ~half after; a cycle timeout forces the freeze if traffic stops first). READ returns the status below; poll frozen before reading trace_data (reads while not frozen return 0 and do not advance). Clear the error condition (read mhdma_system.errors) BEFORE re-arming: re-arm does not clear a still-asserted sticky error, so the buffer will immediately re-trigger and re-freeze if you arm with an error still live. Read the buffer per the wrapped flag: if wrapped=1 the ring is full, read all TRACE_DEPTH entries and rotate by wptr to get oldest->newest (oldest entry index = wptr); if wrapped=0 only entries [0 .. wptr-1] are valid (fewer than TRACE_DEPTH headers captured this session), read those in order and do not rotate. |
 | [trace_data](#register-mhdma-systemtrace-data) | 0x5003c | R. |  Packet-trace data window (ReadNotify). Each read returns the next 32-bit word of the frozen trace and advances the read pointer. Entries are 4 words each: word0=command[31:0], word1=command[63:32], word2=command[95:64], word3={errors[11:0] @[11:0], fsm_state[12:0] @[24:12], timestamp[6:0] @[31:25]} where errors are the mhdma_system.errors mhdma-clock bits [11:0] (the [13:12] cfg-clock overflow bits are not captured) and fsm_state packs {fsm_formatter[2:0], fsm_cem[1:0], fsm_notify_rx[1:0], fsm_burst[1:0], fsm_read_req[1:0], fsm_notify[1:0]}. Read 4*(valid entries) words; re-arming via trace_ctrl resets the read pointer. |
-| [error_mask](#register-mhdma-systemerror-mask) | 0x50040 | RW |  Packet-trace trigger mask + software error inject. mask: 1 = this error arms the trace, 0 = ignored for triggering. The errors register and the captured trace still log ALL errors; the mask affects the TRIGGER only. Mask bits map 1:1 onto errors[11:0]; errors[13:12] are cfg-clock errors that live outside the trace trigger path, so they are not maskable and never arm the trace. Bits above the mhdma error width are ignored. inject_err (bit 31): write 0->1 to inject a synthetic error, which triggers the trace and sets errors[31]; it is sticky and cleared by READING mhdma_system.errors, exactly like a real error, so re-injecting needs a fresh 0->1. Inject exercises the trace trigger/freeze/readback path only, NOT error detection. Set the mask BEFORE arming the trace. Default = mask all-1s, inject_err 0 (trigger on any error). |
+| [error_mask](#register-mhdma-systemerror-mask) | 0x50040 | RW |  Packet-trace trigger mask + software error inject. |
 
 
 ---
@@ -4156,7 +4156,7 @@ Register retry_max contains following Sub-fields:
 
 ### Register mhdma-system.fsm-value
 
-- **Description**: Packed read-only snapshot of all internal FSM states: [26:24] formatter, [20:18] slave notify-rx, [17:15] slave ciphertext-emission, [11:9] master read-request, [5:3] master notify
+- **Description**: Live FSM snapshot: [22:20] formatter, [17:16] slave ciphertext-emission, [13:12] slave notify-rx, [9:8] master burst, [5:4] master read-request, [1:0] master notify
 - **Owner**: Kernel
 - **Read Access**: Read
 - **Write Access**: None
@@ -4346,7 +4346,7 @@ Register trace_ctrl contains following Sub-fields:
 
 ### Register mhdma-system.error-mask
 
-- **Description**: Packet-trace trigger mask + software error inject. mask: 1 = this error arms the trace, 0 = ignored for triggering. The errors register and the captured trace still log ALL errors; the mask affects the TRIGGER only. Mask bits map 1:1 onto errors[11:0]; errors[13:12] are cfg-clock errors that live outside the trace trigger path, so they are not maskable and never arm the trace. Bits above the mhdma error width are ignored. inject_err (bit 31): write 0->1 to inject a synthetic error, which triggers the trace and sets errors[31]; it is sticky and cleared by READING mhdma_system.errors, exactly like a real error, so re-injecting needs a fresh 0->1. Inject exercises the trace trigger/freeze/readback path only, NOT error detection. Set the mask BEFORE arming the trace. Default = mask all-1s, inject_err 0 (trigger on any error).
+- **Description**: Packet-trace trigger mask + software error inject.
 - **Owner**: User
 - **Read Access**: Read
 - **Write Access**: Write
