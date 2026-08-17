@@ -123,7 +123,8 @@ typedef union {
 // Fw must retrived those value from configuration structure. Then two solutions:
 // * Dynamic allocation if Rtos is capable
 // * Runtime check that user configuration don't overflow with static allocation
-#define OPERAND_BUNDLE_MAX_SLOT 40
+// 255, not 256: OperandBundle_t.len is uint8_t and must hold the count.
+#define OPERAND_BUNDLE_MAX_SLOT 255
 #define IMMEDIAT_BUNDLE_MAX_SLOT 4
 #define IMMEDIAT_MSG_MAX_SLOT 6
 // NB: Two words are used for each operands (i.e. props and addr)

@@ -428,6 +428,7 @@ int iOSAL_StartOS( int         iRoundRobinEnabled,
         ( NULL != pvStartTask        ) &&
         ( 0 != usStartTaskStackSize  ) &&
         ( CHECK_32BIT_ALIGNMENT( usStartTaskStackSize ) ) &&
+        ( ( OSAL_TASK_MAX_STACK_SIZE * sizeof( StackType_t ) ) >= usStartTaskStackSize ) &&
         ( FALSE == iOsStarted ) &&
         ( NULL == pvPrintfMutexHandle  ) &&
         ( NULL == pvGetCharMutexHandle ) &&
@@ -624,6 +625,7 @@ int iOSAL_Task_Create( void**      ppvTaskHandle,
         ( NULL != pvTaskFunction ) &&
         ( 0 != usTaskStackSize   ) &&
         ( CHECK_32BIT_ALIGNMENT( usTaskStackSize ) ) &&
+        ( ( OSAL_TASK_MAX_STACK_SIZE * sizeof( StackType_t ) ) >= usTaskStackSize ) &&
         ( NULL != pcTaskName ) )
     {
         if( TRUE == iRoundRobinScheduler )

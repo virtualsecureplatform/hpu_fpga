@@ -77,7 +77,8 @@
 #define ACK_IOP_DEPTH 256
 
 #define IOP_ID_MAX_COUNT  256
-#define MAX_DST_VARS      64
+// 255, not 256: OperandBundle_t.len is uint8_t and must hold the count.
+#define MAX_DST_VARS      255
 #define MAX_VAR_BLKS      128
 #define HPU_MAX_COUNT     7
 #define FLAG_MAX_COUNT    64

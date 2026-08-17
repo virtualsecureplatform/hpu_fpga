@@ -187,6 +187,13 @@ void b2b_pool_print(void) {
       b2b_pool_free_cnt);
 }
 
+// ISR mailbox-drop counter, owned by amc.c; read here for stall reports.
+extern uint32_t mbox_msg_lost_cnt;
+
+// Count of heap-template slots seen beyond the device heap band:
+// non-zero means a compiled program is corrupting ciphertext memory or about to hang the HPU.
+uint32_t heap_overflow_err_cnt = 0;
+
 // dst notify queue
 RemoteOperand_t dst_notifyq[DST_NOTIFYQ_SIZE];
 uint16_t dst_notifyq_head;
@@ -296,6 +303,10 @@ void src_store_reset_iop(uint8_t iid) {
 }
 
 void src_store_inits(uint8_t iid, OperandBundle_t *iop_src) {
+  if (iop_src->len > MAX_DST_VARS) {
+    PLL_ERR("ucore", "src bundle overflows the tracking store (%d > max %d)", iop_src->len, MAX_DST_VARS);
+    return;
+  }
   for (int i = 0; i < MAX_DST_VARS; i++) {
     uint8_t blk_start = 0;
     if (i < iop_src->len) { // used src
@@ -360,6 +371,10 @@ void dst_store_reset_iop(uint8_t iid) {
 }
 
 void dst_store_initd(uint8_t iid, OperandBundle_t *iop_dst) {
+  if (iop_dst->len > MAX_DST_VARS) {
+    PLL_ERR("ucore", "dst bundle overflows the tracking store (%d > max %d)", iop_dst->len, MAX_DST_VARS);
+    return;
+  }
   for (int i = 0; i < MAX_DST_VARS; i++) {
     if (i < iop_dst->len) { // used dst
       dst_store.owner[iid][i] = iop_dst->operand[i].pos;
@@ -490,6 +505,16 @@ void iop_teardown(uint8_t iid) {
             iid,
             tid,
             bid);
+      }
+      // Visible at default (ERROR) verbosity: a dst that never resolves
+      // otherwise looks like a silent hang. Names the store state so a
+      // missing ST (never notified) and a lost notify are distinguishable.
+      if (wait_cnt > 0 && (wait_cnt % 20000) == 0) {
+        PLL_ERR("ucore", "[HPU%d] iop_teardown STUCK on dst iop %d tid %d bid %d "
+            "(state %d, waited %d rounds, notifyq free %d, mbox lost %d)",
+            phys_hpu_id, iid, tid, bid,
+            dst_store.state[iid][tid][bid], wait_cnt,
+            dst_notifyq_free_cnt, mbox_msg_lost_cnt);
       }
       wait_cnt++;
       if (wait_cnt > 10000) {
@@ -641,6 +666,11 @@ uint32_t parse_iop(
       return 0;
     }
 
+    if (dst_pos >= OPERAND_BUNDLE_MAX_SLOT) {
+      PLL_ERR("parse_iop", "too many destinations (max %d)", OPERAND_BUNDLE_MAX_SLOT);
+      return 0;
+    }
+
     // Fill current slot
     dst->operand[dst_pos].cid_ofst = operand_addr->operand_addr.base_cid;
     dst->operand[dst_pos].iid = operand_prop->operand_prop.iid;
@@ -649,6 +679,12 @@ uint32_t parse_iop(
     dst->operand[dst_pos].block = operand_prop->operand_prop.block +1;
     dst_pos +=1;
   } while (!operand_prop->operand_prop.is_last);
+
+  if (dst_pos > MAX_DST_VARS) {
+    PLL_ERR("parse_iop", "too many destinations for the tracking store (%d > max %d)",
+            dst_pos, MAX_DST_VARS);
+    return 0;
+  }
 
 
   cur_iid = dst->operand[0].iid;
@@ -713,6 +749,11 @@ uint32_t parse_iop(
       return 0;
     }
 
+    if (src_pos >= OPERAND_BUNDLE_MAX_SLOT) {
+      PLL_ERR("parse_iop", "too many sources (max %d)", OPERAND_BUNDLE_MAX_SLOT);
+      return 0;
+    }
+
     // Fill current slot
     src->operand[src_pos].cid_ofst = operand_addr->operand_addr.base_cid;
     src->operand[src_pos].iid = operand_prop->operand_prop.iid;
@@ -726,6 +767,12 @@ uint32_t parse_iop(
         src->operand[src_pos].pos);
     src_pos +=1;
   } while (!operand_prop->operand_prop.is_last);
+
+  if (src_pos > MAX_DST_VARS) {
+    PLL_ERR("parse_iop", "too many sources for the tracking store (%d > max %d)",
+            src_pos, MAX_DST_VARS);
+    return 0;
+  }
 
   // Fill bundle length
   src->len = src_pos;
@@ -747,11 +794,20 @@ uint32_t parse_iop(
         return 0;
       }
 
+      if (imm_pos >= IMMEDIAT_BUNDLE_MAX_SLOT) {
+        PLL_ERR("parse_iop", "too many immediates (max %d)", IMMEDIAT_BUNDLE_MAX_SLOT);
+        return 0;
+      }
+
       // Extract lsb from header
       imm->cst[imm_pos].msg[0] = imm_header->header.lsb_msg;
 
       uint32_t msg_pos = 1;
       while ( imm_header->header.block > ((8*sizeof(uint16_t))/MSG_WIDTH)*msg_pos) {
+        if ((msg_pos + 1) >= IMMEDIAT_MSG_MAX_SLOT) {
+          PLL_ERR("parse_iop", "immediate too wide (max %d msg words)", IMMEDIAT_MSG_MAX_SLOT);
+          return 0;
+        }
         uint32_t bfr;
         bfr =stream[stream_pos];
         stream_pos++;
@@ -1017,6 +1073,14 @@ int patch_mem_dop(DOpu_t *dop, OperandBundle_t *iop_dst, OperandBundle_t *iop_sr
     case MEM_ADDR: { // Already an explicit ADDR -> No need to patch
       break;}
     case MEM_HEAP: { // Heap template
+      if (dop->mem.slot >= CT_MEM_SLOT - (b2b_pool_start_addr + b2b_pool_size)) {
+        heap_overflow_err_cnt++;
+        if (heap_overflow_err_cnt <= 4) {
+          PLL_ERR("patch_mem_dop", "[HPU%d] heap slot %d exceeds the device heap band (%d slots): compiled program spills too much",
+                  phys_hpu_id, dop->mem.slot,
+                  CT_MEM_SLOT - (b2b_pool_start_addr + b2b_pool_size));
+        }
+      }
       // Replace Heap offset by concrete addr and toggle the mode
       dop->mem.slot = HEAP_START_SLOT - dop->mem.slot;
       dop->mem.mode = MEM_ADDR;
@@ -1136,6 +1200,14 @@ uint16_t get_raw_ct_id(DOpu_t *dop) {
       break;
     }
     case MEM_HEAP: { // Heap template
+      if (dop->ucore.slot >= CT_MEM_SLOT - (b2b_pool_start_addr + b2b_pool_size)) {
+        heap_overflow_err_cnt++;
+        if (heap_overflow_err_cnt <= 4) {
+          PLL_ERR("get_raw_ct_id", "[HPU%d] heap slot %d exceeds the device heap band (%d slots)",
+                  phys_hpu_id, dop->ucore.slot,
+                  CT_MEM_SLOT - (b2b_pool_start_addr + b2b_pool_size));
+        }
+      }
       // Replace Heap offset by concrete addr and toggle the mode
       raw_ct_id = HEAP_START_SLOT - dop->ucore.slot;
       dop->ucore.mode = MEM_ADDR;

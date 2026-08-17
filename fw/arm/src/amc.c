@@ -642,6 +642,13 @@ static void vAmcStatusOr( uint32_t ulBits )
     HAL_FLUSH_CACHE_DATA( ( uintptr_t )pulStatus, sizeof( uint32_t ) );
 }
 
+/* IOp/DOp translation buffers */
+static uint32_t iop_buffer[IOP_MAX_WORDS];
+static uint32_t dop_buffer[DOP_BUFFER_SIZE];
+static OperandBundle_t dst_bundle;
+static OperandBundle_t src_bundle;
+static ImmediatBundle_t imm_bundle;
+
 /*
  * @brief   The main task
  */
@@ -821,18 +828,13 @@ static void vTaskFuncMain( void )
     // Runtime configuration
     UcoreCfg_t ucore_cfg = {0};
 
-    // IOp/Dop translation buffer
-    uint32_t iop_buffer[IOP_MAX_WORDS];
-    uint32_t dop_buffer[DOP_BUFFER_SIZE];
     // Various structure used by iop parser
+    // (translation buffers and bundles are file-scope statics, see above)
     IOpHeader_t header;
     IOpMapping_t mapping;
     IOpOperandProp_t operand_prop;
     IOpOperandAddr_t operand_addr;
     IOpImmHeader_t imm_header;
-    OperandBundle_t dst_bundle;
-    OperandBundle_t src_bundle;
-    ImmediatBundle_t imm_bundle;
 
     Lookup_t dop_entry;
     DOpu_t   dop;
