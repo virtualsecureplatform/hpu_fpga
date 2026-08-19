@@ -266,6 +266,7 @@ module mhdma_decoder
   assign decoder_header_data = fifo_rx_cmd_in_data;
   assign decoder_header_valid = fifo_rx_cmd_master_in_vld | fifo_rx_cmd_slave_in_vld;
 
+  // Master-role command queue (NOTIFY_ACK + CT EMISSION)
   fifo_ram_rdy_vld # (
     .WIDTH       ($bits(command_t)          ),
     .DEPTH       (RX_FIFO_DEPTH             )
