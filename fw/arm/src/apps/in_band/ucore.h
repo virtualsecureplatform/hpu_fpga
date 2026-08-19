@@ -49,7 +49,7 @@
 #define AMI_IOPQ_MAX_BYTES               (0x10000)
 
 // Begin of DOP_FW_ADDR is reserved for runtime configuration structure
-// A first region is reserve for static IOp
+// A first region is reserved for static IOp
 // => Those IOp are uploaded at configuration time
 #define DOP_FW_ADDR  ((size_t) 0x39000000)
 #define FW_RUNTIME_MAX_WORD ((size_t) 0x40)
@@ -65,8 +65,8 @@
 
 // A second region is reserved for dynamic IOp
 // Those IOp are uploaded at runtime and  stored in sw managed cache with 256 entries
-// Addr offset and size is defined through config structure
-#define MAX_CACHE_TABLE_ENTRY_OFST ((IOP_NUMBER*MAX_HPU_IN_CLUSTER)*sizeof(uint32_t))
+// Addr offset and size are defined through config structure
+#define MAX_CACHE_TABLE_ENTRY_OFST (1 + IOP_NUMBER*MAX_HPU_IN_CLUSTER)*sizeof(uint32_t)
 
 // WARN seems to have limitation on isc_write
 #define DOP_BUFFER_LOG2_SIZE 8
