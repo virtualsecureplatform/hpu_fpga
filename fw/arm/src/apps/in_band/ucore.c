@@ -30,8 +30,9 @@ uint8_t phys_hpu_id;
 uint8_t node_mask;
 uint16_t b2b_pool_start_addr = 12288;
 uint16_t b2b_pool_size = 4096;
-volatile mhdma_element_t mhdma_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
-volatile uint8_t mhdma_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
+volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][MAX_HPU_IN_CLUSTER][FLAG_MAX_COUNT];
+volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
+volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 extern uint64_t intr_readc_cnt;
 extern uint32_t debug_intr_global_cnt;
 
@@ -57,10 +58,10 @@ void print_ddr_debug(uint32_t data) {
 
 // mhdma_table (User data)
 void mhdma_table_reset(void) {
-  memset((void*)mhdma_table_state, MHDMA_STATE_EMPTY, sizeof(mhdma_table_state));
+  memset((void*)mhdma_rx_table_state, MHDMA_STATE_EMPTY, sizeof(mhdma_rx_table_state));
 }
 void mhdma_table_reset_iop(uint8_t iid) {
-  memset((void*)mhdma_table_state[iid], MHDMA_STATE_EMPTY, sizeof(mhdma_table_state[iid]));
+  memset((void*)mhdma_rx_table_state[iid], MHDMA_STATE_EMPTY, sizeof(mhdma_rx_table_state[iid]));
 }
 
 // IOP state
@@ -75,8 +76,8 @@ void iop_state_init(void) {
 }
 
 void iop_state_node_ack(uint8_t iid, uint8_t nb_hpu) {
-  if (nb_hpu > 7) {
-    PLL_ERR("ucore", "iop_state_node_ack called on iid %d with nb_hpu %d > 7", iid, nb_hpu);
+  if (nb_hpu > MAX_HPU_IN_CLUSTER) {
+    PLL_ERR("ucore", "iop_state_node_ack called on iid %d with nb_hpu %d > %d", iid, nb_hpu, MAX_HPU_IN_CLUSTER);
   }
   if ((iop_state[iid].state == IOP_STATE_UNKNOWN)
    || (iop_state[iid].state == IOP_STATE_DONE)) {
@@ -511,8 +512,8 @@ void iop_teardown(uint8_t iid) {
     if ((i != phys_hpu_id) // Not local
         && ( ((node_mask >> i) & 0x1) == 0x1)) // active in cluster
     {
-      if (iop_state[iid].nb_hpu > 7) {
-        PLL_ERR("ucore", "iop_teardown EOIOp notify loop on iid %d with nb_hpu %d > 7 (phys-hpu-id %d node_mask %x)", iid, iop_state[iid].nb_hpu, i, node_mask);
+      if (iop_state[iid].nb_hpu > MAX_HPU_IN_CLUSTER) {
+        PLL_ERR("ucore", "iop_teardown EOIOp notify loop on iid %d with nb_hpu %d > %d (phys-hpu-id %d node_mask %x)", iid, iop_state[iid].nb_hpu, MAX_HPU_IN_CLUSTER, i, node_mask);
       }
       vOSAL_EnterCritical();
       generate_iop_notify(iid, iop_state[iid].nb_hpu, i);
@@ -1112,42 +1113,44 @@ uint16_t get_raw_ct_id(DOpu_t *dop) {
 int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffer, int dop_buffer_pos) {
   int return_value = 0;
   //PLL_DBG("process_ucore_dop", "[HPU%d] %08x", phys_hpu_id, dop->raw);
-  uint8_t current_flag = dop->ucore.flag;
   switch (dop->ucore.opcode & 0xF) {
     case DOPS_NOTIFY: {
       uint16_t raw_ct_id = get_raw_ct_id(dop);
-      volatile mhdma_element_t *current_elt = &mhdma_table[cur_iid][current_flag];
-      mhdma_table_state[cur_iid][current_flag] = MHDMA_STATE_NOTIFY_PENDING;
+      uint8_t notify_flag = dop->ucore.flag;
+      uint8_t notify_vid = dop->ucore.hid;
+      volatile mhdma_element_t *current_elt = &mhdma_tx_table[cur_iid][notify_vid][notify_flag];
       current_elt->src_ct_id = raw_ct_id;
       current_elt->slave_hpu_id = phys_hpu_id;
-      current_elt->master_hpu_id = get_phys_of(dop->ucore.hid, cur_mapping);
+      current_elt->master_hpu_id = get_phys_of(notify_vid, cur_mapping);
 
       //replace notify by sync DOp
-      dop->sync.flag = current_flag;
+      dop->raw = 0;
       dop->sync.opcode = SYNC_OPCODE;
       dop->sync.is_inner = 1;
       dop->sync.iid = cur_iid;
-      dop->sync._pad = 0;
+      dop->sync.hid = notify_vid;
+      dop->sync.flag = notify_flag;
 
       break;
     }
     case DOPS_WAIT: {
       bool data_required = (dop->ucore.hid != 0);
+      uint8_t wait_flag = dop->ucore.flag;
       // if we need to wait, flush
 #ifndef UCORE_MHDMA_SIMU
       if ((dop_buffer_pos%DOP_BUFFER_SIZE) > MIN_DOP_FLUSH
-          && ((data_required && mhdma_table_state[cur_iid][current_flag] < MHDMA_STATE_RESOLVED)
-          || (!data_required && mhdma_table_state[cur_iid][current_flag] < MHDMA_STATE_RECEIVED))) {
+          && ((data_required && mhdma_rx_table_state[cur_iid][wait_flag] < MHDMA_STATE_RESOLVED)
+          || (!data_required && mhdma_rx_table_state[cur_iid][wait_flag] < MHDMA_STATE_RECEIVED))) {
         flush_dop_buffer_to_isc(dop_buffer, (dop_buffer_pos%DOP_BUFFER_SIZE));
         return_value = (dop_buffer_pos%DOP_BUFFER_SIZE);
       }
 #endif
       uint32_t wait_cnt = 0;
-      while (  (data_required && mhdma_table_state[cur_iid][current_flag] < MHDMA_STATE_RESOLVED)
-            || (!data_required && mhdma_table_state[cur_iid][current_flag] < MHDMA_STATE_RECEIVED) ) {
+      while (  (data_required && mhdma_rx_table_state[cur_iid][wait_flag] < MHDMA_STATE_RESOLVED)
+            || (!data_required && mhdma_rx_table_state[cur_iid][wait_flag] < MHDMA_STATE_RECEIVED) ) {
         // wait until notify or read ct is received
         if ((wait_cnt+1)%1000 == 0) {
-          PLL_DBG("ucore", "[HPU%d] dop wait on iop_id %d flag %d state %d", phys_hpu_id, cur_iid, dop->ucore.flag, mhdma_table_state[cur_iid][current_flag]);
+          PLL_DBG("ucore", "[HPU%d] dop wait on iop_id %d flag %d state %d", phys_hpu_id, cur_iid, dop->ucore.flag, mhdma_rx_table_state[cur_iid][wait_flag]);
         }
         wait_cnt++;
         if (wait_cnt > 10000) {
@@ -1163,33 +1166,34 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
       break;
     }
     case DOPS_LD_B2B: {
-      if (current_flag > 0) { // F0 is reserved for pre-load of sources
-        volatile mhdma_element_t *current_elt = &mhdma_table[cur_iid][current_flag];
+      uint8_t ldb2b_flag = dop->ucore.flag;
+      if (ldb2b_flag > 0) { // F0 is reserved for pre-load of sources
+        volatile mhdma_element_t *current_elt = &mhdma_rx_table[cur_iid][ldb2b_flag];
         uint16_t raw_ct_id = get_raw_ct_id(dop);
         current_elt->dst_ct_id = raw_ct_id;
         current_elt->master_hpu_id = phys_hpu_id;
         // Here main task reads intermediate ct state and modifies it
         // so we do not want an ISR to update it in parallel
         vOSAL_EnterCritical();
-        switch (mhdma_table_state[cur_iid][current_flag]) {
+        switch (mhdma_rx_table_state[cur_iid][ldb2b_flag]) {
           case MHDMA_STATE_RESOLVED: break; // nothing to do
           case MHDMA_STATE_RECEIVED: { // must read asap
-            mhdma_table_state[cur_iid][current_flag] = MHDMA_STATE_READING;
+            mhdma_rx_table_state[cur_iid][ldb2b_flag] = MHDMA_STATE_READING;
             PLL_DBG("process_ucore_dop", "[HPU%d] generate user read on iid %d flag %d (%04x -> %04x)",
                     phys_hpu_id,
                     cur_iid,
-                    current_flag,
+                    ldb2b_flag,
                     current_elt->src_ct_id,
                     current_elt->dst_ct_id);
-            generate_read_req(cur_iid, current_flag);
+            generate_read_req(cur_iid, ldb2b_flag);
             break;
           }
           default: { // must wait for notify
-            mhdma_table_state[cur_iid][current_flag] = MHDMA_STATE_LB2B_WAITING;
+            mhdma_rx_table_state[cur_iid][ldb2b_flag] = MHDMA_STATE_LB2B_WAITING;
             PLL_DBG("process_ucore_dop", "[HPU%d] ld b2b waiting on iid %d flag %d (?? -> %04x)",
                     phys_hpu_id,
                     cur_iid,
-                    current_flag,
+                    ldb2b_flag,
                     current_elt->dst_ct_id);
             break;
           }

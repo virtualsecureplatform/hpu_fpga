@@ -64,7 +64,7 @@
 // WARN seems to have limitation on isc_write
 #define DOP_BUFFER_LOG2_SIZE 8
 #define DOP_BUFFER_SIZE (1 << DOP_BUFFER_LOG2_SIZE)
-#define MIN_DOP_FLUSH 10
+#define MIN_DOP_FLUSH 0
 
 // Local Ack -> IOp lookup
 #define ACK_IOP_DEPTH 256
