@@ -1168,32 +1168,32 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
     case DOPS_LD_B2B: {
       uint8_t ldb2b_flag = dop->ucore.flag;
       if (ldb2b_flag > 0) { // F0 is reserved for pre-load of sources
-        volatile mhdma_element_t *current_elt = &mhdma_rx_table[cur_iid][ldb2b_flag ];
+        volatile mhdma_element_t *current_elt = &mhdma_rx_table[cur_iid][ldb2b_flag];
         uint16_t raw_ct_id = get_raw_ct_id(dop);
         current_elt->dst_ct_id = raw_ct_id;
         current_elt->master_hpu_id = phys_hpu_id;
         // Here main task reads intermediate ct state and modifies it
         // so we do not want an ISR to update it in parallel
         vOSAL_EnterCritical();
-        switch (mhdma_rx_table_state[cur_iid][ldb2b_flag ]) {
+        switch (mhdma_rx_table_state[cur_iid][ldb2b_flag]) {
           case MHDMA_STATE_RESOLVED: break; // nothing to do
           case MHDMA_STATE_RECEIVED: { // must read asap
-            mhdma_rx_table_state[cur_iid][ldb2b_flag ] = MHDMA_STATE_READING;
+            mhdma_rx_table_state[cur_iid][ldb2b_flag] = MHDMA_STATE_READING;
             PLL_DBG("process_ucore_dop", "[HPU%d] generate user read on iid %d flag %d (%04x -> %04x)",
                     phys_hpu_id,
                     cur_iid,
-                    ldb2b_flag ,
+                    ldb2b_flag,
                     current_elt->src_ct_id,
                     current_elt->dst_ct_id);
-            generate_read_req(cur_iid, ldb2b_flag );
+            generate_read_req(cur_iid, ldb2b_flag);
             break;
           }
           default: { // must wait for notify
-            mhdma_rx_table_state[cur_iid][ldb2b_flag ] = MHDMA_STATE_LB2B_WAITING;
+            mhdma_rx_table_state[cur_iid][ldb2b_flag] = MHDMA_STATE_LB2B_WAITING;
             PLL_DBG("process_ucore_dop", "[HPU%d] ld b2b waiting on iid %d flag %d (?? -> %04x)",
                     phys_hpu_id,
                     cur_iid,
-                    ldb2b_flag ,
+                    ldb2b_flag,
                     current_elt->dst_ct_id);
             break;
           }
