@@ -30,6 +30,8 @@ uint8_t phys_hpu_id;
 uint8_t node_mask;
 uint16_t b2b_pool_start_addr = 12288;
 uint16_t b2b_pool_size = 4096;
+uint32_t zhc_cache_addr;
+uint32_t zhc_cache_size;
 volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][MAX_HPU_IN_CLUSTER][FLAG_MAX_COUNT];
 volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
@@ -773,37 +775,72 @@ uint32_t parse_iop(
 }
 
 uint32_t get_lookup(IOpHeader_t header, IOpMapping_t mapping, uint8_t hid, Lookup_t* lookup) {
-  // Read translation offset for the given entry
-  // Offset is computed based on max blk_width to correctly handle asym IOp such as Cmp
-  uint8_t max_align = (header.header.dst_align > header.header.src_align)? header.header.dst_align: header.header.src_align;
-  if (max_align >= FW_TABLE_ENTRY) {
-    PLL_ERR("get_lookup", "max_align is wrong src %d dst %d", header.header.src_align, header.header.dst_align);
-    lookup->len = 0;
-    lookup->ptr = NULL;
-    return 1;
+  size_t dop_lut_addr;
+  size_t max_fw_table_entry_ofst;
+  size_t max_fw_size;
+  uintptr_t entry_addr;
+  // Static IOp are indexed by max_align (i.e. integer_w)
+  if (header.header.fw_mode == FW_STATIC) {
+      // Read translation offset for the given entry
+      // Offset is computed based on max blk_width to correctly handle asym IOp such as Cmp
+      uint8_t max_align = (header.header.dst_align > header.header.src_align)? header.header.dst_align: header.header.src_align;
+      if (max_align >= FW_TABLE_ENTRY) {
+        PLL_ERR("get_lookup", "[STATIC] max_align is wrong src %d dst %d", header.header.src_align, header.header.dst_align);
+        lookup->len = 0;
+        lookup->ptr = NULL;
+        return 1;
+      }
+
+      // Get virtual id and check for usage
+      uint8_t vid = get_virt_of(hid, mapping);
+      if (!get_used_of(hid, mapping)) {
+        PLL_ERR("get_lookup", "[STATIC] Current hid %x is not involved in the IOp mapping", hid);
+      }
+      uintptr_t integer_w_bucket = (uintptr_t) (DOP_LUT_ADDR + ((IOP_NUMBER * MAX_HPU_IN_CLUSTER * max_align) * sizeof(uint32_t)));
+      uintptr_t iop_bucket = (uintptr_t) (integer_w_bucket + (header.header.opcode * MAX_HPU_IN_CLUSTER * sizeof(uint32_t)));
+      uintptr_t fw_entry_addr = (uintptr_t) (iop_bucket + vid * sizeof(uint32_t));
+
+      if ( (fw_entry_addr < DOP_LUT_ADDR) ||
+           (fw_entry_addr > (DOP_LUT_ADDR + MAX_FW_TABLE_ENTRY_OFST))) {
+        PLL_ERR("get_lookup", "[STATIC] fw_entry_addr is not in expected range %lx, max_align %d, opcode %d header %x", fw_entry_addr, max_align, header.header.opcode, header.raw);
+        lookup->len = 0;
+        lookup->ptr = NULL;
+        return 1;
+      }
+      dop_lut_addr = DOP_LUT_ADDR;
+      max_fw_table_entry_ofst = MAX_FW_TABLE_ENTRY_OFST;
+      max_fw_size = MAX_FW_SIZE;
+      entry_addr = fw_entry_addr;
+  } else { // Dynamic mode => Look in a runtime updated cache
+      // Get virtual id and check for usage
+      uint8_t vid = get_virt_of(hid, mapping);
+      if (!get_used_of(hid, mapping)) {
+        PLL_ERR("get_lookup", "[DYN] Current hid %x is not involved in the IOp mapping", hid);
+      }
+
+      // NB: Dyn firmware used first lookup-entry as error one.
+      // => This is why there is this 1 word offset
+      uintptr_t iop_bucket = (uintptr_t) (zhc_cache_addr + (( 1 + header.header.opcode * MAX_HPU_IN_CLUSTER) * sizeof(uint32_t)));
+      uintptr_t cache_entry_addr = (uintptr_t) (iop_bucket + vid * sizeof(uint32_t));
+
+      if ( (cache_entry_addr < zhc_cache_addr) ||
+           (cache_entry_addr > (zhc_cache_addr + MAX_CACHE_TABLE_ENTRY_OFST))) {
+        PLL_ERR("get_lookup", "[DYN] cache_entry_addr is not in expected range %lx, opcode %d header %x", cache_entry_addr, header.header.opcode, header.raw);
+        lookup->len = 0;
+        lookup->ptr = NULL;
+        return 1;
+      }
+      dop_lut_addr = (size_t) zhc_cache_addr;
+      max_fw_table_entry_ofst= MAX_CACHE_TABLE_ENTRY_OFST;
+      max_fw_size = (size_t) zhc_cache_size;
+      entry_addr = cache_entry_addr;
   }
 
-  // Get virtual id and check for usage
-  uint8_t vid = get_virt_of(hid, mapping);
-  if (!get_used_of(hid, mapping)) {
-    PLL_ERR("get_lookup", "Current hid %x is not involved in the IOp mapping", hid);
-  }
-  uintptr_t integer_w_bucket = (uintptr_t) (DOP_LUT_ADDR + ((IOP_NUMBER * MAX_HPU_IN_CLUSTER * max_align) * sizeof(uint32_t)));
-  uintptr_t iop_bucket = (uintptr_t) (integer_w_bucket + (header.header.opcode * MAX_HPU_IN_CLUSTER * sizeof(uint32_t)));
-  uintptr_t entry_addr = (uintptr_t) (iop_bucket + vid * sizeof(uint32_t));
-
-  if ( (entry_addr < DOP_LUT_ADDR) ||
-       (entry_addr > (DOP_LUT_ADDR + MAX_FW_TABLE_ENTRY_OFST))) {
-    PLL_ERR("get_lookup", "entry_addr is not in expected range %lx, max_align %d, opcode %d header %x", entry_addr, max_align, header.header.opcode, header.raw);
-    lookup->len = 0;
-    lookup->ptr = NULL;
-    return 1;
-  }
   HAL_INVALIDATE_CACHE_DATA(entry_addr, sizeof(uint32_t));
   size_t entry = *((uint32_t* ) entry_addr);
-  if ( (entry < MAX_FW_TABLE_ENTRY_OFST) ||
-       (entry > MAX_FW_SIZE) ) {
-    PLL_ERR("get_lookup", "entry offset @%lx is wrong %lx must be within [%lx,%x]", entry_addr, entry, MAX_FW_TABLE_ENTRY_OFST, MAX_FW_SIZE);
+  if ( (entry < max_fw_table_entry_ofst) ||
+       (entry > max_fw_size) ) {
+    PLL_ERR("get_lookup", "entry offset @%lx is wrong %lx must be within [%lx,%x]", entry_addr, entry, max_fw_table_entry_ofst, max_fw_size);
     lookup->len = 0;
     lookup->ptr = NULL;
     return 1;
@@ -812,14 +849,14 @@ uint32_t get_lookup(IOpHeader_t header, IOpMapping_t mapping, uint8_t hid, Looku
   // Each translation slot start with translation unit length
   // Invalidate the associated word from the cache, retrieved the entry length
   // Then invalidate the translation slot entry
-  HAL_INVALIDATE_CACHE_DATA( (uintptr_t) (DOP_LUT_ADDR + entry), sizeof(uint32_t));
-  lookup->len = *((volatile uint32_t*) (DOP_LUT_ADDR + entry));
+  HAL_INVALIDATE_CACHE_DATA( (uintptr_t) (dop_lut_addr + entry), sizeof(uint32_t));
+  lookup->len = *((volatile uint32_t*) (dop_lut_addr + entry));
   // Check that retrieved entry is correctly initialized
   if (lookup->len == 0) {
-    PLL_ERR("get_lookup", "Current entry [@%lx] -> [@%lx] isn't initialized", entry_addr, DOP_LUT_ADDR + entry);
+    PLL_ERR("get_lookup", "Current entry [@%lx] -> [@%lx] isn't initialized", entry_addr, dop_lut_addr + entry);
     return 1;
   }
-  lookup->ptr =  (volatile uint32_t*) (DOP_LUT_ADDR + entry + sizeof(uint32_t));
+  lookup->ptr =  (volatile uint32_t*) (dop_lut_addr + entry + sizeof(uint32_t));
   HAL_INVALIDATE_CACHE_DATA( (uintptr_t) lookup->ptr, lookup->len*sizeof(uint32_t));
 
   return 0;

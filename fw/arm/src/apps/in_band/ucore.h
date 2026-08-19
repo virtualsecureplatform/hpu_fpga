@@ -49,10 +49,12 @@
 #define AMI_IOPQ_MAX_BYTES               (0x10000)
 
 // Begin of DOP_FW_ADDR is reserved for runtime configuration structure
+// A first region is reserved for static IOp
+// => Those IOp are uploaded at configuration time
 #define DOP_FW_ADDR  ((size_t) 0x39000000)
 #define FW_RUNTIME_MAX_WORD ((size_t) 0x40)
-
 #define DOP_LUT_ADDR  ((size_t) DOP_FW_ADDR + FW_RUNTIME_MAX_WORD*sizeof(uint32_t))
+
 // Opcode is 8bit -> 256 words entry per blk_w
 #define IOP_NUMBER ((size_t) 0x100)
 #define MAX_HPU_IN_CLUSTER 8
@@ -60,6 +62,11 @@
 #define MAX_FW_TABLE_ENTRY_OFST ((IOP_NUMBER*MAX_HPU_IN_CLUSTER*FW_TABLE_ENTRY)*sizeof(uint32_t))
 #define MAX_FW_SIZE 0x2000000
 #define SYNC_DOP_WORD 0xBC000000
+
+// A second region is reserved for dynamic IOp
+// Those IOp are uploaded at runtime and  stored in sw managed cache with 256 entries
+// Addr offset and size are defined through config structure
+#define MAX_CACHE_TABLE_ENTRY_OFST (1 + IOP_NUMBER*MAX_HPU_IN_CLUSTER)*sizeof(uint32_t)
 
 // WARN seems to have limitation on isc_write
 #define DOP_BUFFER_LOG2_SIZE 8
@@ -140,6 +147,9 @@ typedef struct {
   uint8_t  node_mask;
   uint16_t ct_user_size;
   uint16_t b2b_size;
+  uint8_t  _padding[2];
+  uint32_t zhc_cache_addr;
+  uint32_t zhc_cache_size;
   // TODO extend this with required runtime informations
   // WARN: configuration structure within backend must be updated accordingly
 } UcoreCfg_t;
