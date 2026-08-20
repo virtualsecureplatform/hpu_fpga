@@ -144,27 +144,29 @@ MEM_DIR=${PROJECT_DIR}/hw/memory_file/microblaze
 ###################################################################################################
 # Create input stimuli if necessary
 if [ $GEN_STIMULI -eq 1 ] ; then
-  fw_cfg_script="${PROJECT_DIR}/sw/bin/tfhe-rs/config/gen_hpu_mockup_config.py"
+  fw_cfg_path="${PROJECT_DIR}/sw/bin/tfhe-rs/config"
+  fw_params_script="${PROJECT_DIR}/sw/bin/tfhe-rs/config/gen_hpu_sim_config.py"
+
   fw_bin_path="${PROJECT_DIR}/sw/bin/tfhe-rs/latest"
   fw_bin="${fw_bin_path}/fw"
-  fw_cfg="${fw_bin_path}/config"
+  fw_cfg="${fw_bin_path}/config/dflt_cfg.toml"
 
   #== Create fw config
   echo "###################################################"
   echo "INFO> Generate fw config file"
-  gen_cfg_cmd="python3 ${fw_cfg_script} \
+  gen_params_cmd="python3 ${fw_params_script} \
                 -bpbs_nb $TARGET_PBS_WIDTH \
-                -o ${INPUT_DIR}/fw_cfg.toml \
+                -o ${INPUT_DIR}/fw_params.toml \
                 -f"
-  echo "INFO> Running $gen_cfg_cmd"
-  $gen_cfg_cmd || exit 1
+  echo "INFO> Running $gen_params_cmd"
+  $gen_params_cmd || exit 1
 
   #== Create stimuli
   echo "###################################################"
   echo "INFO> Create stimuli"
   fw_cmd="${fw_bin} \
-    --config ${fw_cfg}/dflt_cfg.toml \
-    --params ${INPUT_DIR}/fw_cfg.toml \
+    --config ${fw_cfg} \
+    --params ${INPUT_DIR}/fw_params.toml \
     --kogge-cfg \"\" \
     --integer-w ${TARGET_IOP_WIDTH} \
     --heap 4096 \

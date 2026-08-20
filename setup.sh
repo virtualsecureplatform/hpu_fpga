@@ -45,9 +45,6 @@ export PROJECT_TOP_SYN_TOOL="vitis"
 export XILINX_VIVADO=${XILINX_VIVADO:-${XILINX_PATH}/${XILINX_TOOL_VERSION}/Vivado}
 export XILINX_VITIS=${XILINX_VITIS:-${XILINX_PATH}/${XILINX_TOOL_VERSION}/Vitis}
 
-
-# Microblaze configuration
-export MICROBLAZE_CONF="ublaze"
 # for compilation using Vitis
 export LC_ALL="C"
 
@@ -94,7 +91,10 @@ export TV_HW_VERSION="split_v1.5"
 export GTV_VERSION="v1.4.1"
 
 # tfhe-rs version
-export TFHERS_VERSION="v2.10"
+export TFHERS_VERSION="v3.0"
+
+# hpu_sim version
+export HPUSIM_VERSION="v1.0"
 
 # Complete PATH with Xilinx's tools
 echo "INFO > Run $XILINX_VIVADO/settings64.sh"
@@ -116,10 +116,10 @@ echo "  PROJECT_TOP_SYN_TOOL=$PROJECT_TOP_SYN_TOOL"
 echo "  XILINX_VIVADO=$XILINX_VIVADO"
 echo "  XILINX_VITIS=$XILINX_VITIS"
 echo "  VITIS_TARGET=$VITIS_TARGET"
-echo "  MICROBLAZE_CONF=$MICROBLAZE_CONF"
 echo "  TV_HW_VERSION=${TV_HW_VERSION}"
 echo "  GTV_VERSION=${GTV_VERSION}"
 echo "  TFHERS_VERSION=${TFHERS_VERSION}"
+echo "  HPUSIM_VERSION=${HPUSIM_VERSION}"
 echo "  SNPS_VCS_UFE_KDB=${SNPS_VCS_UFE_KDB}"
 echo -e "$export_str"
 
@@ -140,9 +140,12 @@ rm -f ${PROJECT_DIR}/sw/bin/gtv/latest
 ln -s ${PROJECT_DIR}/sw/bin/gtv/${GTV_VERSION} ${PROJECT_DIR}/sw/bin/gtv/latest
 rm -f ${PROJECT_DIR}/sw/bin/tfhe-rs/latest
 ln -s ${PROJECT_DIR}/sw/bin/tfhe-rs/${TFHERS_VERSION} ${PROJECT_DIR}/sw/bin/tfhe-rs/latest
+rm -f ${PROJECT_DIR}/sw/bin/hpu_sim/latest
+ln -s ${PROJECT_DIR}/sw/bin/hpu_sim/${HPUSIM_VERSION} ${PROJECT_DIR}/sw/bin/hpu_sim/latest
 echo "#################################################"
 echo "# Create link"
 echo "#################################################"
 echo "  ln -s ${PROJECT_DIR}/sw/bin/tv_hw/${TV_HW_VERSION} ${PROJECT_DIR}/sw/bin/tv_hw/latest"
 echo "  ln -s ${PROJECT_DIR}/sw/bin/gtv/${GTV_VERSION} ${PROJECT_DIR}/sw/bin/gtv/latest"
 echo "  ln -s ${PROJECT_DIR}/sw/bin/tfhe-rs/${TFHERS_VERSION} ${PROJECT_DIR}/sw/bin/tfhe-rs/latest"
+echo "  ln -s ${PROJECT_DIR}/sw/bin/hpu_sim/${HPUSIM_VERSION} ${PROJECT_DIR}/sw/bin/hpu_sim/latest"

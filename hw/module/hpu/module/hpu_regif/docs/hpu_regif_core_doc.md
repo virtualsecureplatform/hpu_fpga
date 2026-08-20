@@ -4129,7 +4129,7 @@ Register timeout_read_req contains following Sub-fields:
 
 ### Register mhdma-system.retry-max
 
-- **Description**: Timeout: maximum number of times we should do retries for both Notify & Retry 
+- **Description**: Timeout: maximum number of times we should do retries for both Notify & Retry
 - **Owner**: User
 - **Read Access**: Read
 - **Write Access**: Write

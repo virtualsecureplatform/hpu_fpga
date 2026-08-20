@@ -37,7 +37,6 @@
 // ============================================================================================= //
 // TODO: Add RTL register for heap_start.
 // This will enable the FW to use this value instead of currently hardcoded one.
-// NB: Currently the value is hardcoded, since the ublaze in u55c can't read the register file
 #define CT_MEM_SLOT 32768
 #define HEAP_START_SLOT ((CT_MEM_SLOT) -1)
 

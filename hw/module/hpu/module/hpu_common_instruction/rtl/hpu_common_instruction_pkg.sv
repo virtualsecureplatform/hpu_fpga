@@ -13,7 +13,10 @@ package hpu_common_instruction_pkg;
 //==================================================
 // Only used in testbench,
 // Must be moved to a testbench only package
-  localparam int IOP_W = 8;
+  localparam int IOP_INST_W= 32;
+  localparam int IOP_ID_W = 8;
+  // Start index of IOP_ID
+  localparam int IOP_ID_LB= 16;
 
 //==================================================
 // Digit opcode

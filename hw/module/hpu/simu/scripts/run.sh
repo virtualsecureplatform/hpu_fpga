@@ -14,9 +14,9 @@ export RUST_LOG=Debug
 
 ###################################################################################################
 # Register trap for SIGINT:
-# Aims is to properly terminate the hpu_mockup backend task if launched
+# Aims is to properly terminate the hpu_sim backend task if launched
 ###################################################################################################
-trap 'if [[ ! -z ${hpu_mockup_pid+x} ]]; then kill ${hpu_mockup_pid}; fi; exit' SIGINT
+trap 'if [[ ! -z ${hpu_sim_pid+x} ]]; then kill ${hpu_sim_pid}; fi; exit' SIGINT
 
 # aliases are not expanded when the shell is not interactive.
 # Redefine here for more clarity
@@ -27,7 +27,6 @@ module="tb_hpu"
 ###################################################################################################
 # Default values
 ###################################################################################################
-SOFT_NAME=ucore_fw
 SOFT_TARGET=microblaze
 UCODE_DIR="default"
 
@@ -89,6 +88,7 @@ INT_SIZE=16
 IOP="ADD"
 REGIF_FILE_S="${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_cfg_1in3.toml \
               ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_cfg_3in3.toml \
+              ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_mhdma_2in3.toml \
               ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_prc_1in3.toml \
               ${PROJECT_DIR}/hw/module/hpu/module/hpu_regif/scripts/hpu_regif_core_prc_3in3.toml"
 
@@ -141,7 +141,6 @@ echo "-j                       : Regfile number of coefficients (default $REGF_C
 echo "-k                       : Regfile number of sequences (default $REGF_SEQ)"
 echo "-Q                       : PEA_ALU_NB (default : $PEA_ALU_NB)"
 echo "-n                       : Integer size (default $INT_SIZE)"
-echo "-x                       : software top file (default = \"${SOFT_NAME}\")"
 echo "-y                       : directory containing microcode files. (default = \"${UCODE_DIR}\")"
 echo "-a                       : default ucode IOP (default CUST_0)"
 echo "-M                       : ISC depth (default $ISC_DEPTH)"
@@ -166,7 +165,7 @@ echo "INFO> Parse command line"
 # Initialize your own variables here:
 NTT_RDX_CUT_S_TMP=()
 REGIF_FILE_S_TMP=()
-while getopts "Chzg:l:R:P:S:w:t:m:c:H:K:s:e:b:q:W:A:J:I:L:B:r:V:X:Y:Z:G:o:u:f:O:U:F:i:j:k:x:E:y:n:a:M:T:p:d:D:Q:" opt; do
+while getopts "Chzg:l:R:P:S:w:t:m:c:H:K:s:e:b:q:W:A:J:I:L:B:r:V:X:Y:Z:G:o:u:f:O:U:F:i:j:k:E:y:n:a:M:T:p:d:D:Q:" opt; do
   case "$opt" in
     h)
       usage
@@ -294,10 +293,6 @@ while getopts "Chzg:l:R:P:S:w:t:m:c:H:K:s:e:b:q:W:A:J:I:L:B:r:V:X:Y:Z:G:o:u:f:O:
       ;;
     n)
       INT_SIZE=$OPTARG
-      ;;
-    x)
-      echo "INFO> Embedded Software top file $OPTARG"
-      SOFT_NAME=$OPTARG
       ;;
     y)
       UCODE_DIR=`realpath $OPTARG`
@@ -581,32 +576,15 @@ if [ $GEN_STIMULI -eq 1 ] ; then
   rm -rf ${INPUT_DIR}/*
 fi
 TV_DIR=${INPUT_DIR}/test_vectors/latest
-SOFT_OUTPUT_DIR=${PROJECT_DIR}/hw/output/micro_code
 MEM_DIR=${PROJECT_DIR}/hw/memory_file/microblaze
 
 gtv_bin="${PROJECT_DIR}/sw/bin/gtv/latest/gtv"
-hpu_mockup_bin="${PROJECT_DIR}/sw/bin/tfhe-rs/latest/hpu_mockup"
+hpu_sim_bin="${PROJECT_DIR}/sw/bin/hpu_sim/latest/hpu_sim"
 hpu_bench_bin="${PROJECT_DIR}/sw/bin/tfhe-rs/latest/hpu_bench"
 twd_script="${PROJECT_DIR}/hw/module/hpu/simu/scripts/gen_twd.py"
-hpu_mockup_cfg_script="${PROJECT_DIR}/sw/bin/tfhe-rs/config/gen_hpu_mockup_config.py"
+hpu_sim_cfg_script="${PROJECT_DIR}/sw/bin/tfhe-rs/config/gen_hpu_sim_config.py"
 hpu_cfg_script="${SCRIPT_DIR}/gen_hpu_config.py"
 ntt_gf64_script="${PROJECT_DIR}/sw/ntt/ntt_gf64.sage"
-
-###################################################################################################
-# Software compilation
-###################################################################################################
-if [ $GEN_STIMULI -eq 1 ] ; then
-  echo "###################################################"
-  echo "INFO> Compiling softprocessor code"
-  echo ""
-  make -C ${PROJECT_DIR}/fw/ublaze/src/ target=$SOFT_TARGET srcf=$SOFT_NAME
-
-  # Link
-  echo ""
-  echo "INFO> Link $SOFT_OUTPUT_DIR to ${INPUT_DIR}/micro_code"
-  if [ -d ${INPUT_DIR}/micro_code ] ; then rm -f ${INPUT_DIR}/micro_code ; fi
-  ln -s $SOFT_OUTPUT_DIR ${INPUT_DIR}/micro_code
-fi
 
 ###################################################################################################
 # Generate packages
@@ -978,10 +956,10 @@ if [ $GEN_STIMULI -eq 1 ] ; then
   echo "INFO> Running $gen_cfg_cmd"
   $gen_cfg_cmd || exit 1
 
-  #== Create hpu_mockup config
+  #== Create hpu_sim config
   echo "###################################################"
-  echo "INFO> Generate hpu_mockup config file"
-  gen_mockup_cfg_cmd="python3 ${hpu_mockup_cfg_script} \
+  echo "INFO> Generate hpu_sim config file"
+  gen_sim_cfg_cmd="python3 ${hpu_sim_cfg_script} \
                 -R $R \
                 -P $PSI \
                 -N $N \
@@ -1015,25 +993,26 @@ if [ $GEN_STIMULI -eq 1 ] ; then
                 -use_mean_comp $USE_MEAN_COMP \
                 $ntt_cut_arg \
                 -z $DELTA \
-                -o ${INPUT_DIR}/hpu_mockup_cfg.toml \
+                -o ${INPUT_DIR}/hpu_sim_cfg.toml \
                 -f"
-  echo "INFO> Running $gen_mockup_cfg_cmd"
-  $gen_mockup_cfg_cmd || exit 1
+  echo "INFO> Running $gen_sim_cfg_cmd"
+  $gen_sim_cfg_cmd || exit 1
 
   #== Create stimuli
   echo "###################################################"
   echo "INFO> Create stimuli"
 
-  # Start mockup in background
-  hpu_mockup_cmd="$hpu_mockup_bin \
-      --config ${INPUT_DIR}/hpu_cfg.toml\
-      --params ${INPUT_DIR}/hpu_mockup_cfg.toml \
-      --dump-out ${INPUT_DIR}/ucode"
-  echo "INFO> Running $hpu_mockup_cmd in background"
-  RUST_LOG="debug" $hpu_mockup_cmd &
-  hpu_mockup_pid=$!
-  # Let some time to hpu_mockup to init and configure Ipc
-  sleep 1
+  # Start hpu_sim (IPC backend for hpu_bench) in background
+  hpu_sim_cmd="$hpu_sim_bin \
+      --config ${INPUT_DIR}/hpu_cfg.toml \
+      --compute-params ${INPUT_DIR}/hpu_sim_cfg.toml \
+      --duration 3600_s"
+  echo "INFO> Running $hpu_sim_cmd in background"
+  RUST_LOG="debug" $hpu_sim_cmd &
+  hpu_sim_pid=$!
+
+  # Let some time to hpu_sim to init and configure Ipc
+  sleep 10
 
   # In case of custom IOP check if it required a immediat
   # This should be describe in custom_iop header with a dedicated prototype file
@@ -1060,10 +1039,14 @@ if [ $GEN_STIMULI -eq 1 ] ; then
   echo "INFO> Running $hpu_bench_cmd"
   $hpu_bench_cmd || exit 1
 
-  # Stop mockup background task
-  kill_cmd="kill $hpu_mockup_pid"
+  # Stop hpu_sim background task
+  kill_cmd="kill $hpu_sim_pid"
   echo "INFO> Running $kill_cmd"
   $kill_cmd || exit 1
+
+  #== Retrieved Iop/Dop file
+  cp -r /tmp/hpu_sim/latest_output/traces/root\:\:node_0\:\:ucore/iop ${INPUT_DIR}/ucode
+  cp -r /tmp/hpu_sim/latest_output/traces/root\:\:node_0\:\:ucore/dop ${INPUT_DIR}/ucode
 
   #== Cleanup generated files
   # Replace comment sign # with slashes => supported by readmemh
@@ -1086,16 +1069,16 @@ fi
 IOP_NB=0
 for f in `ls ${INPUT_DIR}/ucode/iop/*.hex`; do
   name=`basename $f`
-  if [[ $name =~ iop_([0-9]+).hex$ ]]; then
+  if [[ $name =~ iop_iid([0-9]+).hex$ ]]; then
     n=${BASH_REMATCH[1]}
-    if [ $n -ne $IOP_NB ]; then
-      echo "ERROR> iop_${IOP_NB}.hex not found. iop_*.hex files should be named consecutively, since they are executed in order."
+    if [ $n -ne $(( $IOP_NB+1 )) ]; then
+      echo "ERROR> iop_iid${IOP_NB}.hex not found. iop_iid*.hex files should be named consecutively, since they are executed in order."
       exit 1
     fi
     IOP_NB=$(( $IOP_NB+1 ))
-    echo "INFO> Use iop_$n.hex"
+    echo "INFO> Use iop_iid$n.hex"
   else
-    echo "WARNING> iop file's name: $name not recognized. Should be of this form \"iop_([0-9]+).hex\""
+    echo "WARNING> iop file's name: $name not recognized. Should be of this form \"iop_iid([0-9]+).hex\""
   fi
 done
 echo "INFO> IOP_NB=$IOP_NB"
@@ -1105,17 +1088,22 @@ DOP_L=""
 DOP_NB=0
 for f in `ls ${INPUT_DIR}/ucode/dop/*.hex`; do
   name=`basename $f`
-  if [[ $name =~ dop_([0-9a-f][0-9a-f]).hex$ ]]; then
+  if [[ $name =~ dop_executed_([0-9a-f][0-9a-f]).hex$ ]]; then
     n=${BASH_REMATCH[1]}
     DOP_L="$n${DOP_L}"
     DOP_NB=$(( $DOP_NB+1 ))
     echo "INFO> Use dop_$n.hex"
   else
-    echo "WARNING> dop file's name: $name not recognized. Should be of this form \"dop_([0-9a-f][0-9a-f]).hex\""
+    echo "WARNING> dop file's name: $name not recognized. Should be of this form \"dop_executed_([0-9a-f][0-9a-f]).hex\""
   fi
 done
 echo "INFO> DOP_NB=$DOP_NB"
 SIZE_DOP_L=$(( $DOP_NB * 8 ))
+
+if (( IOP_NB == 0 || DOP_NB == 0 )); then
+  echo "ERROR> Issue encountered with IOp or DOp files loading."
+  exit 1
+fi
 
 # Find list of GLWE
 GLWE_L=""

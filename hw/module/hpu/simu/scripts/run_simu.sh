@@ -267,3 +267,4 @@ for ((j = 0; j < 1; j++)); do
     echo -e "${GREEN}SUCCEED>${NC} $cmd" 1>&2
   fi
 done
+

@@ -53,8 +53,7 @@ The directories of this repository are organized in the following way:
 * `docs/`
     * Markdown documentations.
 * `fw/`
-    * Firmware code for the RPU or microblaze.
-    * Flow necessary for the ublaze generation.
+    * Firmware code for the RPU
 * `hw/`
     * RTL code and the simulation flow.
 * `sw/`
@@ -286,18 +285,6 @@ The second line is an edalize output, indicating that an "xdc" files has been gi
 
 The third line, created by run_simu.sh, indicates the status of the test : SUCCEED or FAILURE.
 
-#### Simulation with firmware
-The V80 FPGA has on-board a dual-core Arm Cortex-R5F (RPU) that executes the firmware code. To accelerate the simulation, we use a microblaze model to run a similar version of this firmware.
-
-In some simulations, like the top level one, the generation of the microblaze model is needed. So before these simulations, do the following:
-```
-${PROJECT_DIR}/fw/ublaze/script/generate_core.sh
-```
-<p align="right">
-  <a href="#table-of-contents" > ↑ Back to top </a>
-</p>
-
-<a id="bring-up"></a>
 ## Bring-up
 
 > [!WARNING]
