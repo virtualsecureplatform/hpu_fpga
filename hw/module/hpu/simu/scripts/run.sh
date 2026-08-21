@@ -934,11 +934,11 @@ if [ $GEN_STIMULI -eq 1 ] ; then
     fi
 
     idx=${BASH_REMATCH[1]}
-    if [ ! -f ${UCODE_DIR}/IOP_${idx}.asm ]; then
-      echo "ERROR> Ucode ${UCODE_DIR}/${idx}.asm does not exist."
+    if [ ! -f ${UCODE_DIR}/IOP_${idx}_v0.asm ]; then
+      echo "ERROR> Ucode ${UCODE_DIR}/IOP_${idx}_v0.asm does not exist."
       exit 1
     fi
-    gen_cfg_args="$gen_cfg_args --cust_iop ${UCODE_DIR}/IOP_${idx}.asm"
+    gen_cfg_args="$gen_cfg_args --cust_iop ${UCODE_DIR}/IOP_${idx}"
   else
     if [ $UCODE_DIR != "default" ] ; then
       echo "WARNING> Ucode directory $UCODE_DIR given, but it won't be used, since the IOP is not a custom"
@@ -1023,9 +1023,9 @@ if [ $GEN_STIMULI -eq 1 ] ; then
   if [[ $IOP =~ ^IOP\[([0-9]+)\]$ ]]; then
     iop_id=${BASH_REMATCH[1]}
     if [ ${iop_id} -ge 16 ]; then
-      IOP_PROTO="--user-proto <Native>::<Native,Native><0>"
+      IOP_PROTO="--user-proto [1]<Native>::<Native,Native><0>"
       else
-      IOP_PROTO="--user-proto <Native>::<Native><1>"
+      IOP_PROTO="--user-proto [1]<Native>::<Native><1>"
     fi
   fi
 

@@ -76,14 +76,15 @@ trace_depth = 32
   fill_batch_fifo=false
   min_batch_size = {{min_batch_size}}
   kogge_cfg=""
+
 {% if cust_iop|length > 0 %}
+[firmware.custom_iop.integer_w_2]
 {% for key, value in cust_iop.items() -%}
-custom_iop.'IOP[{{ key }}]' = "{{ value }}"
+'IOP[{{ key }}]' = "{{ value }}"
 {% endfor %}
 {% else %}
 custom_iop = {}
 {% endif %}
-op_cfg.by_op = {}
 
 [firmware.op_cfg.default]
   fill_batch_fifo = true
@@ -91,3 +92,5 @@ op_cfg.by_op = {}
   use_tiers = false
   flush_behaviour = "Patient"
   flush = true
+
+[firmware.op_cfg.by_op]
