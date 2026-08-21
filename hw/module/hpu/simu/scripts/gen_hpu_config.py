@@ -46,7 +46,7 @@ if __name__ == '__main__':
     cust_iop = {}
     for f in args.cust_iop:
         import re;
-        match = re.match(r".*IOP_(?P<id>\d+)\.asm", f)
+        match = re.match(r".*IOP_(?P<id>\d+)", f)
         if match is None:
             sys.exit("ERROR> File {:s} invalid name".format(f))
         else:
