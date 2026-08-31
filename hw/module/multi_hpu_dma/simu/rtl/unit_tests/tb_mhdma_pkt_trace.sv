@@ -46,8 +46,8 @@ module tb_mhdma_pkt_trace;
 // ============================================================================================== --
 // localparam
 // ============================================================================================== --
-  localparam int CLK_HALF_PERIOD_MHDMA = 1;  // fast capture clock
-  localparam int CLK_HALF_PERIOD_CFG   = 4;  // slow cfg clock (matches tb_mhdma_errors ratio)
+  localparam int CLK_HALF_PERIOD_MHDMA = 1.28; // fast capture clock
+  localparam int CLK_HALF_PERIOD_CFG   = 5;   // slow cfg clock (matches tb_mhdma_errors ratio)
   localparam int ARST_ACTIVATION       = 17;
   localparam int SIM_TIMEOUT           = 2_000_000;
 
