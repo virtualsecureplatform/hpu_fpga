@@ -55,7 +55,7 @@ module mhdma_pkt_trace
   // =========================================================================================== //
   // Localparam
   // =========================================================================================== //
-  localparam int TRACE_CDC_STAGES = 4;
+  localparam int TRACE_CDC_STAGES = 2;
 
   // Timeout (in clk_mhdma cycles): force the freeze this long after the trigger if the tail
   // window never fills (e.g. RX traffic stops after the error)
@@ -65,7 +65,7 @@ module mhdma_pkt_trace
   localparam int TRACE_TAIL_TIMEOUT_AW = $clog2(TRACE_TAIL_TIMEOUT + 1);
 
   // Freeze margin: keep trace_frozen_q low for this many clk_mhdma cycles after trace_tail_done.
-  localparam int TRACE_FREEZE_MARGIN   = TRACE_CDC_STAGES;
+  localparam int TRACE_FREEZE_MARGIN   = 8; // two cfg cycles
   localparam int TRACE_FREEZE_CNT_W    = $clog2(TRACE_FREEZE_MARGIN + 1);
 
   localparam int TRACE_TS_W  = REG_DATA_W - TRACE_AUX_W; // the timestamp uses the remaining bits of the last word (it wraps)
@@ -75,18 +75,19 @@ module mhdma_pkt_trace
   localparam int TRACE_WORD_AW  = $clog2(TRACE_WORDS);
   localparam int TRACE_RD_PTR_W = TRACE_AW + TRACE_WORD_AW;   // {entry, word} read pointer width
 
-  // pragma translate_off
-  initial begin
-    assert (TRACE_DEPTH == (1 << TRACE_AW))
-    else $error("[ERROR]: TRACE_DEPTH (%0d) must be a power of 2", TRACE_DEPTH);
-    assert ((TRACE_W % REG_DATA_W) == 0)
-    else $error("[ERROR]: TRACE_W (%0d) must be a multiple of REG_DATA_W (%0d)", TRACE_W, REG_DATA_W);
-    assert (TRACE_AUX_W < REG_DATA_W)
-    else $error("[ERROR]: TRACE_AUX_W (%0d) must be < REG_DATA_W (%0d)", TRACE_AUX_W, REG_DATA_W);
+  // Synthesis-visible elaboration guards ---------------------------------------------------------
+  if (TRACE_DEPTH != (1 << TRACE_AW)) begin : gen_trace_depth_illegal
+    $fatal(1, "[ERROR]: TRACE_DEPTH (%0d) must be a power of 2", TRACE_DEPTH);
   end
-  // pragma translate_on
 
-  // Synthesis-visible elaboration guard ----------------------------------------------------------
+  if ((TRACE_W % REG_DATA_W) != 0) begin : gen_trace_w_illegal
+    $fatal(1, "[ERROR]: TRACE_W (%0d) must be a multiple of REG_DATA_W (%0d)", TRACE_W, REG_DATA_W);
+  end
+
+  if (TRACE_AUX_W >= REG_DATA_W) begin : gen_trace_aux_w_illegal
+    $fatal(1, "[ERROR]: TRACE_AUX_W (%0d) must be < REG_DATA_W (%0d)", TRACE_AUX_W, REG_DATA_W);
+  end
+
   // TRACE_TS_W = REG_DATA_W - TRACE_AUX_W must leave at least one timestamp bit.
   if (TRACE_TS_W < 1) begin : gen_trace_ts_w_illegal
     $fatal(1, "[ERROR]: TRACE_TS_W (%0d) < 1: TRACE_AUX_W (%0d) leaves no timestamp bits in REG_DATA_W (%0d); reduce ETH_PC/PEM_PC", TRACE_TS_W, TRACE_AUX_W, REG_DATA_W);
@@ -292,7 +293,7 @@ module mhdma_pkt_trace
     // clk_mhdma_cfg read port
     .rd_clk  (clk_mhdma_cfg                                   ),
     .rd_rstn (resetn_mhdma_cfg                                ),
-    .rd_en   (1'b1                                            ),
+    .rd_en   (trace_frozen                                    ),
     .rd_addr (trace_rd_ptr[TRACE_RD_PTR_W-1:TRACE_WORD_AW]    ), // entry index
     .rd_data (trace_rd_entry                                  )
   );
@@ -303,13 +304,12 @@ module mhdma_pkt_trace
   // =========================================================================================== //
   // Status CDC
   // =========================================================================================== //
-  // Each signal crosses on its own synchronizer. The freeze margin makes trace_wptr_q static
-  // before trace_frozen_q asserts, so the cfg side samples a coherent wptr while frozen is high.
-  logic                frozen_cfg;          // synced frozen
-  logic                frozen_cfg_q;        // +1 cfg-cycle delay (publish stage)
-  logic [TRACE_AW-1:0] wptr_cfg;            // synced wptr (static while frozen)
-  logic                wrapped_cfg;         // synced wrapped flag (static while frozen)
-  logic                frozen_clr_pending;  // masks stale frozen after re-arm
+  // The freeze margin makes trace_wptr_q static before trace_frozen_q asserts, so the cfg
+  // side samples a coherent wptr while frozen is high.
+  logic frozen_cfg;          // synced frozen
+  logic frozen_cfg_q;        // +1 cfg-cycle delay (publish stage)
+  logic wrapped_cfg;         // synced wrapped flag (static while frozen)
+  logic frozen_clr_pending;  // masks stale frozen after re-arm
 
   // frozen and wrapped are single-bit status signals. Each bit crosses on its own single-bit
   // synchronizer. Inter-bit coherency is not necessary because both bits are static when the
@@ -338,18 +338,6 @@ module mhdma_pkt_trace
   assign frozen_cfg  = trace_st_cfg[TRACE_ST_FROZEN];
   assign wrapped_cfg = trace_st_cfg[TRACE_ST_WRAPPED];
 
-  // wptr is multi-bit but static once frozen, so array-single is safe (and stops report_cdc
-  // flagging a per-bit sync on a bus).
-  xpm_cdc_array_single_wrapper #(
-    .WIDTH           (TRACE_AW       ),
-    .CDC_SYNC_STAGES (TRACE_CDC_STAGES)
-  ) cdc_trace_wptr (
-    .src_clk  (clk_mhdma   ),
-    .dest_clk (clk_mhdma_cfg),
-    .src_in   (trace_wptr_q),
-    .dest_out (wptr_cfg     )
-  );
-
   // After a re-arm, frozen_cfg holds the stale frozen value of the previous capture for a few
   // cycles. frozen_clr_pending masks the published frozen until the stale value clears.
   always_ff @(posedge clk_mhdma_cfg) begin
@@ -368,11 +356,36 @@ module mhdma_pkt_trace
       frozen_cfg_q <= frozen_cfg;
       // publish frozen 1 cycle later; held low while a re-arm is still flushing the stale frozen
       trace_frozen <= frozen_cfg_q & ~frozen_clr_pending;
-      if (frozen_cfg) begin              // wptr/wrapped stable while frozen
-        trace_wptr    <= wptr_cfg;
+      // Capture once, on the frozen_cfg rising edge. The stale-high frozen_cfg after a re-arm or
+      // an mhdma-domain reset has no rising edge, so a moving trace_wptr_q is never sampled.
+      if (frozen_cfg & ~frozen_cfg_q) begin
+        trace_wptr    <= trace_wptr_q;   // direct cross-domain capture, see xdc
         trace_wrapped <= wrapped_cfg;
       end
     end
   end
+
+  // =========================================================================================== //
+  // Assertions
+  // =========================================================================================== //
+  // pragma translate_off
+  // trace_we must stop TRACE_FREEZE_MARGIN or more clk_mhdma cycles before trace_frozen_q rises.
+  // Then trace_wptr_q and trace_wrapped_q are static before they cross to the cfg domain.
+  ap_freeze_margin : assert property (@(posedge clk_mhdma) disable iff (~resetn_mhdma)
+    trace_we |-> (~trace_frozen_q)[*TRACE_FREEZE_MARGIN])
+  else $fatal(1, "%t > [ASSERT] trace_we within the freeze margin of trace_frozen_q rising", $time);
+
+  // trace_wptr_q and trace_wrapped_q cross to the cfg domain without per-bit coherency.
+  // They must not change while trace_frozen_q is high.
+  ap_static_while_frozen : assert property (@(posedge clk_mhdma) disable iff (~resetn_mhdma)
+    trace_frozen_q |-> $stable(trace_wptr_q) && $stable(trace_wrapped_q))
+  else $fatal(1, "%t > [ASSERT] trace_wptr_q/trace_wrapped_q changed while trace_frozen_q high", $time);
+
+  // The cfg domain samples trace_wptr_q only at the frozen_cfg rising edge.
+  // trace_wptr_q must be stable at that edge.
+  ap_wptr_stable_at_capture : assert property (@(posedge clk_mhdma_cfg) disable iff (~resetn_mhdma_cfg)
+    (frozen_cfg & ~frozen_cfg_q) |-> $stable(trace_wptr_q))
+  else $fatal(1, "%t > [ASSERT] trace_wptr_q moving at the frozen_cfg capture edge", $time);
+  // pragma translate_on
 
 endmodule

@@ -501,7 +501,7 @@ module mhdma_bridge
   // Trace
   // ==============================================================================================
   // stat_to_cfg is not cdc'd yet here. Name is just stating a direction.
-  assign stat_to_cfg.mhdma_errors = {{(32-$bits(mhdma_error_t)){1'b0}}, mhdma_errors};
+  assign stat_to_cfg.mhdma_errors = REG_DATA_W'(mhdma_errors);
 
   // Trigger mask CDC (cfg -> mhdma).
   // The config is quasi-static and per-bit coherency is not required

@@ -31,6 +31,9 @@ set_false_path -through [get_cells -hierarchical -regexp -filter { NAME =~ ".*/r
 set_false_path -to [get_cells -hierarchical -filter {NAME =~ *mhdma_slave/*phy_addr_reg*}] -from [get_cells -hierarchical -filter {NAME =~ *hpu_regif_core_mhdma_2in3/*addr_2in3_ct_*_reg*}]
 set_false_path -to [get_cells -hierarchical -filter {NAME =~ *mhdma_master/*phy_addr_reg*}] -from [get_cells -hierarchical -filter {NAME =~ *hpu_regif_core_mhdma_2in3/*addr_2in3_ct_*_reg*}]
 
+# quasi-static on trace wptr, best to be sure it settles within freeze margin rather than setting false path
+set_max_delay 10.000 -from [get_cells -hierarchical -filter {NAME =~ *mhdma_pkt_trace/trace_wptr_q_reg*}] -to [get_cells -hierarchical -filter {NAME =~ *mhdma_pkt_trace/trace_wptr_reg*}]
+
 # asynchronous reset signals
 # note that gt_rx_reset_done and gt_tx_reset_done are clocked with axi_clk. same clock as the regfile that reads them.
 set_false_path -through [get_nets  -hierarchical -regexp -filter { NAME =~ ".*gt_reset_rx_datapath.*"}]
