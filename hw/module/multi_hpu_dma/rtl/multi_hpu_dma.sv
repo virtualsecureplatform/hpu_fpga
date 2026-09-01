@@ -170,45 +170,47 @@ module multi_hpu_dma
   mhdma_error_all_t      mhdma_error_all;
 
   // Packet trace debug (clk_mhdma_cfg) ----------------------------------------------------------
-  logic                             trace_ctrl_wr_en; // trace_ctrl WriteNotify strobe
-  logic                             trace_arm;     // write w/ frozen=0 -> flush + re-arm
-  logic                             trace_freeze;  // write w/ frozen=1 -> force freeze now
-  logic                             trace_rd_en;   // trace_data read strobe  -> pop one word
-  logic [REG_DATA_W-1:0]            trace_rd_data; // current 32-bit trace word from the bridge
+  logic                             trace_cmd_wr_en; // trace_cmd WriteNotify strobe
+  logic                             trace_arm;       // trace_cmd.rearm  -> flush + re-arm
+  logic                             trace_freeze;    // trace_cmd.freeze -> force freeze now
+  logic                             trace_inject;    // trace_cmd.inject_err -> inject a synthetic error
+  logic                             trace_rd_en;     // trace_data read strobe -> pop one word
+  logic [REG_DATA_W-1:0]            trace_rd_data;   // current 32-bit trace word from the bridge
   logic                             trace_frozen;
   logic [$clog2(TRACE_DEPTH)-1:0]   trace_wptr;
   logic                             trace_wrapped;
-  mhdma_system_trace_ctrl_t         trace_status;  // status returned when reading trace_ctrl
-  mhdma_system_trace_ctrl_t         trace_wr;      // write-data view (r_axil_wdata) for the command
+  logic                             trace_frozen_by_err;
+  logic                             trace_frozen_by_sw;
+  logic [TRACE_RD_PTR_W-1:0]        trace_rd_ptr;
+  mhdma_system_trace_status_t       trace_status;    // read value of trace_status
+  mhdma_system_trace_cmd_t          trace_cmd_wr;    // write-data view (r_axil_wdata) for the commands
 
   // Build the status from the generated regif struct (single source of truth for the bit layout).
   always_comb begin
-    trace_status         = '0;             // reserved/padding bits
-    trace_status.frozen  = trace_frozen;
-    trace_status.wptr    = trace_wptr;
-    trace_status.wrapped = trace_wrapped;
+    trace_status               = '0;        // reserved/padding bits
+    trace_status.frozen        = trace_frozen;
+    trace_status.frozen_by_err = trace_frozen_by_err;
+    trace_status.frozen_by_sw  = trace_frozen_by_sw;
+    trace_status.wrapped       = trace_wrapped;
+    trace_status.wptr          = trace_wptr;
+    trace_status.rd_ptr        = trace_rd_ptr;
   end
 
-  // trace_ctrl WriteNotify command, decoded from the write data (.frozen bit): 1 = freeze, 0 = arm.
-  assign trace_freeze = trace_ctrl_wr_en &  trace_wr.frozen;
-  assign trace_arm    = trace_ctrl_wr_en & ~trace_wr.frozen;
+  // trace_cmd WriteNotify strobes, decoded from the write data (one-hot write-1-to-act bits).
+  assign trace_freeze = trace_cmd_wr_en & trace_cmd_wr.freeze;
+  assign trace_arm    = trace_cmd_wr_en & trace_cmd_wr.rearm;
+  assign trace_inject = trace_cmd_wr_en & trace_cmd_wr.inject_err;
 
   // Trace trigger mask + software error inject (clk_mhdma_cfg) -----------------------------------
   mhdma_system_error_mask_t error_mask_reg;  // stored config register
-  logic                     inject_req_q;    // stored inject_err bit, delayed (edge detect)
   logic                     inject_err_q;    // sticky injected error
 
-  // Inject on the front-edge of the stored MSB, so holding it at 1 injects once.
+  // Inject on the trace_cmd.inject_err command strobe.
   // Cleared by reading mhdma_system_errors (same strobe as the real errors)
   always_ff @(posedge clk_mhdma_cfg) begin
-    if (~resetn_mhdma_cfg) inject_req_q <= 1'b0;
-    else                   inject_req_q <= error_mask_reg.inject_err;
-  end
-
-  always_ff @(posedge clk_mhdma_cfg) begin
-    if      (~resetn_mhdma_cfg)                         inject_err_q <= 1'b0;
-    else if (stat_rst_cfg.mhdma_errors)                 inject_err_q <= 1'b0; // clear-on-read
-    else if (error_mask_reg.inject_err & ~inject_req_q) inject_err_q <= 1'b1;
+    if      (~resetn_mhdma_cfg)         inject_err_q <= 1'b0;
+    else if (stat_rst_cfg.mhdma_errors) inject_err_q <= 1'b0; // clear-on-read
+    else if (trace_inject)              inject_err_q <= 1'b1;
   end
 
   // Transceivers ---------------------------------------------------------------------------------
@@ -302,7 +304,7 @@ module multi_hpu_dma
     .s_axil_rresp                                         (s_axil_mhdma_rresp                                    ),
     .s_axil_rvalid                                        (s_axil_mhdma_rvalid                                   ),
     .s_axil_rready                                        (s_axil_mhdma_rready                                   ),
-    .r_axil_wdata                                         (trace_wr                                              ),
+    .r_axil_wdata                                         (trace_cmd_wr                                          ),
     // HPU ids ---------------------------------------------------------------------------------------------------
     .r_mhdma_system_hpu_id_0                              (r_regf_hpu_ids[0]                                     ),
     .r_mhdma_system_hpu_id_1                              (r_regf_hpu_ids[1]                                     ),
@@ -447,10 +449,12 @@ module multi_hpu_dma
     .r_mhdma_request_stat_nb_decoder_dropped              (/* UNUSED - register output, only _upd/_rd_en used */ ),
     .r_mhdma_request_stat_nb_decoder_dropped_upd          (stat_cfg.decoder.cnt_dropped                          ),
     .r_mhdma_request_stat_nb_decoder_dropped_rd_en        (stat_rst_cfg.decoder.cnt_dropped                      ),
-    // packet trace debug (trace_ctrl: read = status, write = arm/freeze command)
-    .r_mhdma_system_trace_ctrl                            (/* UNUSED - register output, only _upd/_wr_en used */ ),
-    .r_mhdma_system_trace_ctrl_upd                        (trace_status                                          ),
-    .r_mhdma_system_trace_ctrl_wr_en                      (trace_ctrl_wr_en                                      ),
+    // packet trace debug (trace_cmd: write-1-to-act strobes, reads as zero; trace_status: read-only)
+    .r_mhdma_system_trace_cmd                             (/* UNUSED - register output, only _wr_en used */      ),
+    .r_mhdma_system_trace_cmd_upd                         ('0                                                    ),
+    .r_mhdma_system_trace_cmd_wr_en                       (trace_cmd_wr_en                                       ),
+    .r_mhdma_system_trace_status                          (/* UNUSED - register output, only _upd used */        ),
+    .r_mhdma_system_trace_status_upd                      (trace_status                                          ),
     .r_mhdma_system_trace_data                            (/* UNUSED - register output, only _upd/_rd_en used */ ),
     .r_mhdma_system_trace_data_upd                        (trace_rd_data                                         ),
     .r_mhdma_system_trace_data_rd_en                      (trace_rd_en                                           ),
@@ -674,6 +678,9 @@ module multi_hpu_dma
     .trace_frozen                   (trace_frozen                                                 ),
     .trace_wptr                     (trace_wptr                                                   ),
     .trace_wrapped                  (trace_wrapped                                                ),
+    .trace_frozen_by_err            (trace_frozen_by_err                                          ),
+    .trace_frozen_by_sw             (trace_frozen_by_sw                                           ),
+    .trace_rd_ptr                   (trace_rd_ptr                                                 ),
     .error_mask_cfg                 (error_mask_reg.mask[MHDMA_ERR_W-1:0]                         ),
     .inject_err_cfg                 (inject_err_q                                                 ),
     // statistics ---------------------------------------------------------------------------------

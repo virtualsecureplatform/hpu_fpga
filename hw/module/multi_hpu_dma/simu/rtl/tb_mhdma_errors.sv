@@ -51,11 +51,15 @@ module tb_mhdma_errors;
   localparam int TB_TRACE_W    = $bits(command_t) + TRACE_AUX_W + TB_TRACE_TS_W;
   localparam int TRACE_WORDS   = TB_TRACE_W / REG_DATA_W;
 
-  // error_mask register values: mask = [30:0], inject_err = [32] = MHDMA_ERR_INJECT_BIT.
+  // error_mask register values: mask = [30:0].
   localparam logic [REG_DATA_W-1:0] ERR_MASK_ALL    = 32'h7FFF_FFFF; // any error triggers (default)
   localparam logic [REG_DATA_W-1:0] ERR_MASK_NONE   = 32'h0000_0000; // no error triggers
   localparam logic [REG_DATA_W-1:0] ERR_MASK_ID     = 32'h0000_0001; // only error_id (bit 0) triggers
-  localparam logic [REG_DATA_W-1:0] ERR_MASK_INJECT = 32'h8000_0000; // mask none + inject_err = 1
+
+  // trace_cmd one-hot command strobes.
+  localparam logic [REG_DATA_W-1:0] TRACE_CMD_FREEZE = 32'h0000_0001;
+  localparam logic [REG_DATA_W-1:0] TRACE_CMD_REARM  = 32'h0000_0002;
+  localparam logic [REG_DATA_W-1:0] TRACE_CMD_INJECT = 32'h0000_0004;
 
 // ============================================================================================== --
 // clock, reset
@@ -954,7 +958,7 @@ module tb_mhdma_errors;
     int                    BATCH2;
     int                    BATCH3;
     logic [REG_DATA_W-1:0] status;
-    logic [5:0]            wptr1, wptr2; // trace_ctrl[6:1] (6-bit write pointer at depth 64)
+    logic [5:0]            wptr1, wptr2; // trace_status[9:4] (6-bit write pointer at depth 64)
     logic [SRC_ADDR_W-1:0] sent_src [TRACE_DEPTH]; // per-packet src_addr we drove (content-check expectation)
     logic [IOP_ID_W-1:0]   sent_iop [TRACE_DEPTH]; // per-packet iop_id we drove
     begin
@@ -963,7 +967,7 @@ module tb_mhdma_errors;
       BATCH3 = 4;
 
       // --- Arm the trace (flush + start circular capture) ---
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm: trace_ctrl.frozen=0 (write frozen=1 to force a SW freeze)
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_REARM); // re-arm: flush + resume capture
       repeat(20) @(posedge clk_mhdma_cfg);
 
       // --- Populate the trace with BATCH1 received notify headers ---
@@ -981,12 +985,16 @@ module tb_mhdma_errors;
       repeat(400) @(posedge clk_mhdma_cfg); // wait out the post-trigger timeout backstop + freeze publish
 
       // --- Verify the trace froze and captured exactly BATCH1 entries ---
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
-      wptr1 = status[6:1];
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
+      wptr1 = status[9:4];
       $display("%t > [TRACE] after error #1: status=0x%08x frozen=%0b wptr=%0d",
                $time, status, status[0], wptr1);
       assert (status[0]) else begin
         $display("%t > [ERROR] trace did not freeze on error #1", $time);
+        error_unexpected = 1'b1;
+      end
+      assert (status[1] & ~status[2]) else begin
+        $display("%t > [ERROR] error #1 freeze cause: by_err=%0b by_sw=%0b, expected 1/0", $time, status[1], status[2]);
         error_unexpected = 1'b1;
       end
       assert (wptr1 == BATCH1) else begin
@@ -994,7 +1002,7 @@ module tb_mhdma_errors;
         error_unexpected = 1'b1;
       end
       // BATCH1 (< DEPTH) headers captured -> partial ring, wrapped must be 0
-      assert (~status[7]) else begin
+      assert (~status[3]) else begin
         $display("%t > [ERROR] trace wrapped=1 after error #1 (only %0d < DEPTH captured)", $time, BATCH1);
         error_unexpected = 1'b1;
       end
@@ -1005,16 +1013,16 @@ module tb_mhdma_errors;
       // --- Clear the error (restore one-hot). Trace must stay frozen (sticky). ---
       maxil_drv.write_trans(MHDMA_SYSTEM_HPU_ID_1_OFS, {1'b0, 3'b0, 4'h1, 24'hABCDE1});
       repeat(60) @(posedge clk_mhdma_cfg);
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
       assert (status[0]) else begin
         $display("%t > [ERROR] trace freeze should stay sticky after the error cleared", $time);
         error_unexpected = 1'b1;
       end
 
       // --- Re-arm: flush + resume capture; verify it unfreezes ---
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm: trace_ctrl.frozen=0 (write frozen=1 to force a SW freeze)
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_REARM); // re-arm: flush + resume capture
       repeat(60) @(posedge clk_mhdma_cfg);
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
       $display("%t > [TRACE] after re-arm: status=0x%08x frozen=%0b", $time, status, status[0]);
       assert (~status[0]) else begin
         $display("%t > [ERROR] trace still frozen after re-arm", $time);
@@ -1035,8 +1043,8 @@ module tb_mhdma_errors;
       repeat(400) @(posedge clk_mhdma_cfg); // wait out the post-trigger timeout backstop + freeze publish
 
       // --- Verify it re-froze and "started back": wptr now reflects only BATCH2 (re-arm reset it) ---
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status); // read trace_ctrl -> status
-      wptr2 = status[6:1];
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
+      wptr2 = status[9:4];
       $display("%t > [TRACE] after error #2: status=0x%08x frozen=%0b wptr=%0d",
                $time, status, status[0], wptr2);
       assert (status[0]) else begin
@@ -1049,7 +1057,7 @@ module tb_mhdma_errors;
         error_unexpected = 1'b1;
       end
       // re-arm reset wrapped; BATCH2 (< DEPTH) captured -> wrapped must be 0
-      assert (~status[7]) else begin
+      assert (~status[3]) else begin
         $display("%t > [ERROR] trace wrapped=1 after error #2 / re-arm (only %0d < DEPTH captured)", $time, BATCH2);
         error_unexpected = 1'b1;
       end
@@ -1063,9 +1071,9 @@ module tb_mhdma_errors;
       repeat(50) @(posedge clk_mhdma_cfg);
 
       // --- SW freeze (no error): arm, capture BATCH3, then WRITE frozen=1 to force a freeze on
-      //     demand. Exercises the trace_ctrl write-data decode (r_axil_wdata) through the real regif,
+      //     demand. Exercises the trace_cmd write-data decode (r_axil_wdata) through the real regif,
       //     and that the freeze needs no error / no timeout. ---
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm (frozen=0)
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_REARM); // re-arm
       repeat(20) @(posedge clk_mhdma_cfg);
       for (int i = 0; i < BATCH3; i++) begin
         iop_id = $urandom(); src_addr = $urandom();
@@ -1075,20 +1083,24 @@ module tb_mhdma_errors;
       end
       repeat(50) @(posedge clk_mhdma_cfg);
 
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1); // SW freeze (frozen=1), no error
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_FREEZE); // SW freeze, no error
       repeat(60) @(posedge clk_mhdma_cfg);                       // freeze publish (no timeout involved)
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status);
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
       $display("%t > [TRACE] after SW freeze: status=0x%08x frozen=%0b wptr=%0d",
-               $time, status, status[0], status[6:1]);
+               $time, status, status[0], status[9:4]);
       assert (status[0]) else begin
-        $display("%t > [ERROR] SW freeze (write frozen=1) did not freeze the trace", $time);
+        $display("%t > [ERROR] SW freeze (trace_cmd.freeze) did not freeze the trace", $time);
         error_unexpected = 1'b1;
       end
-      assert (status[6:1] == BATCH3) else begin
-        $display("%t > [ERROR] SW freeze wptr=%0d, expected %0d", $time, status[6:1], BATCH3);
+      assert (status[2] & ~status[1]) else begin
+        $display("%t > [ERROR] SW freeze cause: by_err=%0b by_sw=%0b, expected 0/1", $time, status[1], status[2]);
         error_unexpected = 1'b1;
       end
-      assert (~status[7]) else begin
+      assert (status[9:4] == BATCH3) else begin
+        $display("%t > [ERROR] SW freeze wptr=%0d, expected %0d", $time, status[9:4], BATCH3);
+        error_unexpected = 1'b1;
+      end
+      assert (~status[3]) else begin
         $display("%t > [ERROR] SW freeze wrapped=1 (only %0d < DEPTH captured)", $time, BATCH3);
         error_unexpected = 1'b1;
       end
@@ -1096,7 +1108,7 @@ module tb_mhdma_errors;
       $display("%t > [TRACE] SW freeze OK: froze on demand with no error, content verified", $time);
 
       // --- Leave the trace clean: re-arm ---
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm (frozen=0)
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_REARM); // re-arm
       repeat(50) @(posedge clk_mhdma_cfg);
 
       scenario_id = scenario_id + 1;
@@ -1110,9 +1122,9 @@ module tb_mhdma_errors;
   task automatic trace_arm();
     logic [REG_DATA_W-1:0] status;
     begin
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h0); // arm (frozen=0)
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_REARM); // re-arm
       repeat(60) @(posedge clk_mhdma_cfg);
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status);
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
       assert (~status[0]) else begin
         $display("%t > [ERROR] trace still frozen after re-arm", $time);
         error_unexpected = 1'b1;
@@ -1123,7 +1135,7 @@ module tb_mhdma_errors;
   task automatic trace_check_frozen(input bit exp_frozen, input string ctx);
     logic [REG_DATA_W-1:0] status;
     begin
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status);
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
       assert (status[0] == exp_frozen) else begin
         $display("%t > [ERROR] %s (frozen=%0b, expected %0b)", $time, ctx, status[0], exp_frozen);
         error_unexpected = 1'b1;
@@ -1167,25 +1179,40 @@ module tb_mhdma_errors;
   // Check a freeze that captured exactly `n` entries (< TRACE_DEPTH, so wrapped must be 0).
   task automatic trace_check_freeze(input int n, input string ctx,
                                     input logic [SRC_ADDR_W-1:0] exp_src [TRACE_DEPTH],
-                                    input logic [IOP_ID_W-1:0]   exp_iop [TRACE_DEPTH]);
+                                    input logic [IOP_ID_W-1:0]   exp_iop [TRACE_DEPTH],
+                                    input bit exp_by_sw = 1'b0);
     logic [REG_DATA_W-1:0] status;
     begin
-      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, status);
-      $display("%t > [TRACE] %s: status=0x%08x frozen=%0b wptr=%0d wrapped=%0b",
-               $time, ctx, status, status[0], status[6:1], status[7]);
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
+      $display("%t > [TRACE] %s: status=0x%08x frozen=%0b by_err=%0b by_sw=%0b wptr=%0d wrapped=%0b rd_ptr=%0d",
+               $time, ctx, status, status[0], status[1], status[2], status[9:4], status[3], status[23:16]);
+      assert ((status[2] == exp_by_sw) && (status[1] == ~exp_by_sw)) else begin
+        $display("%t > [ERROR] %s: freeze cause by_err=%0b by_sw=%0b, expected %0b/%0b", $time, ctx, status[1], status[2], ~exp_by_sw, exp_by_sw);
+        error_unexpected = 1'b1;
+      end
+      assert (status[23:16] == 0) else begin
+        $display("%t > [ERROR] %s: rd_ptr=%0d before readout, expected 0", $time, ctx, status[23:16]);
+        error_unexpected = 1'b1;
+      end
       assert (status[0]) else begin
         $display("%t > [ERROR] %s: trace did not freeze", $time, ctx);
         error_unexpected = 1'b1;
       end
-      assert (status[6:1] == n) else begin
-        $display("%t > [ERROR] %s: wptr=%0d, expected %0d", $time, ctx, status[6:1], n);
+      assert (status[9:4] == n) else begin
+        $display("%t > [ERROR] %s: wptr=%0d, expected %0d", $time, ctx, status[9:4], n);
         error_unexpected = 1'b1;
       end
-      assert (~status[7]) else begin
+      assert (~status[3]) else begin
         $display("%t > [ERROR] %s: wrapped=1 (only %0d < DEPTH captured)", $time, ctx, n);
         error_unexpected = 1'b1;
       end
       check_trace_content(n, exp_src, exp_iop);
+      // The readout above popped n entries of TRACE_WORDS words: rd_ptr must reflect it.
+      maxil_drv.read_trans(MHDMA_SYSTEM_TRACE_STATUS_OFS, status);
+      assert (status[23:16] == n*TRACE_WORDS) else begin
+        $display("%t > [ERROR] %s: rd_ptr=%0d after readout, expected %0d", $time, ctx, status[23:16], n*TRACE_WORDS);
+        error_unexpected = 1'b1;
+      end
     end
   endtask
 
@@ -1193,7 +1220,7 @@ module tb_mhdma_errors;
   //   (a) mask error_id off -> the error is still reported, but must NOT arm the trace
   //   (b) clear it, unmask it, re-provoke -> now it MUST freeze
   //   (c) mask everything off and inject in software -> freezes, is visible at the errors MSB,
-  //       clears on read, and does not re-inject without a fresh 0->1
+  //       clears on read, and a re-arm alone does not re-inject
   // Step (b) restores the one-hot config and clears the errors register BEFORE unmasking: error_id
   // is a config-driven level, so unmasking with it still live would freeze the trace off the OLD
   // error and the test would pass without ever proving that a fresh error triggers.
@@ -1234,11 +1261,11 @@ module tb_mhdma_errors;
 
       // Capture more headers with the masked error live, then freeze in software.
       send_trace_batch(BATCH_POST, sent_src, sent_iop, BATCH);
-      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CTRL_OFS, 32'h1); // SW freeze (frozen=1)
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_FREEZE); // SW freeze
       repeat(60) @(posedge clk_mhdma_cfg);
 
       // Reads the ring and, as a side effect, fills trace_errs[] from word3.
-      trace_check_freeze(BATCH + BATCH_POST, "masked error + SW freeze", sent_src, sent_iop);
+      trace_check_freeze(BATCH + BATCH_POST, "masked error + SW freeze", sent_src, sent_iop, 1'b1);
 
       // word3 check: pre-error entries carry no error bits, post-error ones carry error_id.
       // This is also the only end-to-end check of the word3 field offsets the register doc (and host-side
@@ -1291,7 +1318,7 @@ module tb_mhdma_errors;
       trace_arm();
       send_trace_batch(BATCH, sent_src, sent_iop);
 
-      maxil_drv.write_trans(MHDMA_SYSTEM_ERROR_MASK_OFS, ERR_MASK_INJECT); // 0->1 on inject_err
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_INJECT); // inject a synthetic error
       repeat(400) @(posedge clk_mhdma_cfg);
 
       trace_check_freeze(BATCH, "software inject", sent_src, sent_iop);
@@ -1307,19 +1334,18 @@ module tb_mhdma_errors;
         error_unexpected = 1'b1;
       end
 
-      // the stored inject_err bit is still 1: without a fresh 0->1 nothing may re-inject
+      // inject is a command strobe: a re-arm alone must not re-inject
       trace_arm();
       repeat(400) @(posedge clk_mhdma_cfg);
-      trace_check_frozen(1'b0, "re-armed with inject_err still 1 and it re-injected");
+      trace_check_frozen(1'b0, "re-arm alone re-injected");
 
-      maxil_drv.write_trans(MHDMA_SYSTEM_ERROR_MASK_OFS, ERR_MASK_NONE);   // MSB back to 0
-      maxil_drv.write_trans(MHDMA_SYSTEM_ERROR_MASK_OFS, ERR_MASK_INJECT); // fresh 0->1
+      maxil_drv.write_trans(MHDMA_SYSTEM_TRACE_CMD_OFS, TRACE_CMD_INJECT); // explicit re-inject
       repeat(400) @(posedge clk_mhdma_cfg);
       trace_check_frozen(1'b1, "explicit re-inject did not trigger");
-      $display("%t > [TRACE] inject OK: edge-triggered, visible at errors[%0d], clears on read", $time, MHDMA_ERR_INJECT_BIT);
+      $display("%t > [TRACE] inject OK: command strobe, visible at errors[%0d], clears on read", $time, MHDMA_ERR_INJECT_BIT);
 
       // --- Restore defaults for the end-of-test checks ---------------------------------------
-      maxil_drv.write_trans(MHDMA_SYSTEM_ERROR_MASK_OFS, ERR_MASK_ALL); // mask all-1s, inject 0
+      maxil_drv.write_trans(MHDMA_SYSTEM_ERROR_MASK_OFS, ERR_MASK_ALL); // mask all-1s
       maxil_drv.read_trans(MHDMA_SYSTEM_ERRORS_OFS, reg_err);           // clear the injected bit
       trace_arm();
 

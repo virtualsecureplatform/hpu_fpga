@@ -363,6 +363,13 @@ package mhdma_pkg;
   localparam int TRACE_AUX_W = TRACE_FSM_W + $bits(mhdma_error_t);
   localparam int TRACE_AW    = $clog2(TRACE_DEPTH);
 
+  // Trace entry geometry: the timestamp pads {aux, ts} to exactly one 32-bit word.
+  localparam int TRACE_TS_W     = REG_DATA_W - TRACE_AUX_W;
+  localparam int TRACE_W        = $bits(command_t) + TRACE_AUX_W + TRACE_TS_W;
+  localparam int TRACE_WORDS    = TRACE_W / REG_DATA_W;
+  localparam int TRACE_WORD_AW  = $clog2(TRACE_WORDS);
+  localparam int TRACE_RD_PTR_W = TRACE_AW + TRACE_WORD_AW; // {entry, word} read pointer
+
   // Trace trigger mask / software error inject.
   localparam int MHDMA_ERR_W          = $bits(mhdma_error_t);
   localparam int MHDMA_ERR_INJECT_BIT = REG_DATA_W - 1;

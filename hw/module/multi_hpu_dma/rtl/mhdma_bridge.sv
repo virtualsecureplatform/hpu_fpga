@@ -107,6 +107,9 @@ module mhdma_bridge
   output logic                                    trace_frozen,
   output logic [$clog2(TRACE_DEPTH)-1:0]          trace_wptr,
   output logic                                    trace_wrapped,
+  output logic                                    trace_frozen_by_err,
+  output logic                                    trace_frozen_by_sw,
+  output logic [TRACE_RD_PTR_W-1:0]               trace_rd_ptr,
   input  logic [MHDMA_ERR_W-1:0]                  error_mask_cfg, // 1 = this error arms the trace
   input  logic                                    inject_err_cfg, // sticky software error inject
   // QSFP system interface ----------------------------------------------------
@@ -444,7 +447,10 @@ module mhdma_bridge
     .trace_rd_data               (trace_rd_data                               ),
     .trace_frozen                (trace_frozen                                ),
     .trace_wptr                  (trace_wptr                                  ),
-    .trace_wrapped               (trace_wrapped                               )
+    .trace_wrapped               (trace_wrapped                               ),
+    .trace_frozen_by_err         (trace_frozen_by_err                         ),
+    .trace_frozen_by_sw          (trace_frozen_by_sw                          ),
+    .trace_rd_ptr                (trace_rd_ptr                                )
   );
 
   // the formatter gathers commands from master & slave module and sends it to axis

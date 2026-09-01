@@ -26,6 +26,7 @@
 // NOTEs:
 //  * the wptr/wrapped CDC is safe only because trace_wptr_q/trace_wrapped_q are static by the time they are published.
 //  * re-arm resets the pointers/counters but does NOT clear the RAM.
+//  * the freeze cause (error / SW) and the read pointer are published in trace_status.
 //
 // ================================================================================================
 
@@ -47,9 +48,12 @@ module mhdma_pkt_trace
   input  logic                     trace_freeze,   // 1-cycle strobe: SW requests a freeze
   input  logic                     trace_rd_en,    // 1-cycle strobe: pop one 32-bit trace word
   output logic [REG_DATA_W-1:0]    trace_rd_data,  // current trace word
-  output logic                     trace_frozen,   // capture is frozen (synchronized to cfg)
-  output logic [TRACE_AW-1:0]      trace_wptr,     // write pointer at freeze: the oldest entry if wrapped, else the next free slot
-  output logic                     trace_wrapped   // 1 = the ring wrapped and all TRACE_DEPTH entries are valid. 0 = only [0 .. wptr-1] are valid
+  output logic                      trace_frozen,        // capture is frozen (synchronized to cfg)
+  output logic [TRACE_AW-1:0]       trace_wptr,          // write pointer at freeze: the oldest entry if wrapped, else the next free slot
+  output logic                      trace_wrapped,       // 1 = the ring wrapped and all TRACE_DEPTH entries are valid. 0 = only [0 .. wptr-1] are valid
+  output logic                      trace_frozen_by_err, // freeze cause: a masked or injected mhdma error
+  output logic                      trace_frozen_by_sw,  // freeze cause: a SW freeze command
+  output logic [TRACE_RD_PTR_W-1:0] trace_rd_ptr         // {entry, word} read pointer of the trace_data window (clk_mhdma_cfg)
 );
 
   // =========================================================================================== //
@@ -67,13 +71,6 @@ module mhdma_pkt_trace
   // Freeze margin: keep trace_frozen_q low for this many clk_mhdma cycles after trace_tail_done.
   localparam int TRACE_FREEZE_MARGIN   = 8; // two cfg cycles
   localparam int TRACE_FREEZE_CNT_W    = $clog2(TRACE_FREEZE_MARGIN + 1);
-
-  localparam int TRACE_TS_W  = REG_DATA_W - TRACE_AUX_W; // the timestamp uses the remaining bits of the last word (it wraps)
-
-  localparam int TRACE_W        = $bits(command_t) + TRACE_AUX_W + TRACE_TS_W;
-  localparam int TRACE_WORDS    = TRACE_W / REG_DATA_W;
-  localparam int TRACE_WORD_AW  = $clog2(TRACE_WORDS);
-  localparam int TRACE_RD_PTR_W = TRACE_AW + TRACE_WORD_AW;   // {entry, word} read pointer width
 
   // Synthesis-visible elaboration guards ---------------------------------------------------------
   if (TRACE_DEPTH != (1 << TRACE_AW)) begin : gen_trace_depth_illegal
@@ -167,12 +164,15 @@ module mhdma_pkt_trace
   logic                             trace_tail_timeout; // the tail timeout expired
   logic                             trace_err_freeze;   // error-triggered freeze request
   logic                             trace_tail_done;
+  logic                             trace_tail_done_q;
   logic [TRACE_FREEZE_CNT_W-1:0]    trace_freeze_cnt;  // cycles since trace_tail_done (freeze margin)
   logic                             trace_frozen_q;
   logic [TRACE_AW-1:0]              trace_wptr_q;
   logic                             trace_wrapped_q;   // set when the write pointer wraps in this session
   logic                             trace_we;
   logic [TRACE_W-1:0]               trace_wr_data;
+  logic                             trace_by_err_q;
+  logic                             trace_by_sw_q;
 
   always_ff @(posedge clk_mhdma) begin
     if (~resetn_mhdma)       trace_triggered_q <= 1'b0;
@@ -206,6 +206,25 @@ module mhdma_pkt_trace
 
   assign trace_err_freeze = trace_triggered_q & (trace_tail_filled | trace_tail_timeout);
   assign trace_tail_done  = trace_sw_freeze_q | trace_err_freeze;
+
+  always_ff @(posedge clk_mhdma) begin
+    if (~resetn_mhdma)    trace_tail_done_q <= 1'b0;
+    else if (trace_rearm) trace_tail_done_q <= 1'b0;
+    else                  trace_tail_done_q <= trace_tail_done;
+  end
+
+  always_ff @(posedge clk_mhdma) begin
+    if (~resetn_mhdma) begin
+      trace_by_err_q <= 1'b0;
+      trace_by_sw_q  <= 1'b0;
+    end else if (trace_rearm) begin
+      trace_by_err_q <= 1'b0;
+      trace_by_sw_q  <= 1'b0;
+    end else if (trace_tail_done & ~trace_tail_done_q) begin
+      trace_by_err_q <= trace_err_freeze;
+      trace_by_sw_q  <= trace_sw_freeze_q;
+    end
+  end
 
   // Freeze margin --------------------------------------------------------------------------------
   // trace_wptr_q and trace_wrapped_q must be static for at least the synchronizer depth before
@@ -256,11 +275,11 @@ module mhdma_pkt_trace
   // =========================================================================================== //
   // Read pointer (clk_mhdma_cfg)
   // =========================================================================================== //
-  logic [TRACE_RD_PTR_W-1:0] trace_rd_ptr;
   logic [TRACE_WORD_AW-1:0]  trace_word_sel_q;
 
   // The read pointer increments only while the trace is frozen.
   // Before the freeze, the RAM is not stable.
+  // trace_rd_ptr is an output port, published to SW in trace_status.rd_ptr.
   always_ff @(posedge clk_mhdma_cfg) begin
     if (~resetn_mhdma_cfg)                trace_rd_ptr <= '0;
     else if (trace_arm)                   trace_rd_ptr <= '0;
@@ -309,19 +328,25 @@ module mhdma_pkt_trace
   logic frozen_cfg;          // synced frozen
   logic frozen_cfg_q;        // +1 cfg-cycle delay (publish stage)
   logic wrapped_cfg;         // synced wrapped flag (static while frozen)
+  logic by_err_cfg;          // synced freeze cause: error
+  logic by_sw_cfg;           // synced freeze cause: SW command
   logic frozen_clr_pending;  // masks stale frozen after re-arm
 
-  // frozen and wrapped are single-bit status signals. Each bit crosses on its own single-bit
-  // synchronizer. Inter-bit coherency is not necessary because both bits are static when the
-  // cfg side samples frozen.
-  localparam int TRACE_ST_W       = 2;
+  // frozen, wrapped and the freeze causes are single-bit status signals. Each bit crosses on
+  // its own single-bit synchronizer. Inter-bit coherency is not necessary because all bits are
+  // static when the cfg side samples frozen.
+  localparam int TRACE_ST_W       = 4;
   localparam int TRACE_ST_FROZEN  = 0;
   localparam int TRACE_ST_WRAPPED = 1;
-  logic [TRACE_ST_W-1:0] trace_st_src; // {wrapped, frozen} in clk_mhdma
+  localparam int TRACE_ST_BY_ERR  = 2;
+  localparam int TRACE_ST_BY_SW   = 3;
+  logic [TRACE_ST_W-1:0] trace_st_src; // {by_sw, by_err, wrapped, frozen} in clk_mhdma
   logic [TRACE_ST_W-1:0] trace_st_cfg; // synced into clk_mhdma_cfg
 
   assign trace_st_src[TRACE_ST_FROZEN]  = trace_frozen_q;
   assign trace_st_src[TRACE_ST_WRAPPED] = trace_wrapped_q;
+  assign trace_st_src[TRACE_ST_BY_ERR]  = trace_by_err_q;
+  assign trace_st_src[TRACE_ST_BY_SW]   = trace_by_sw_q;
 
   for (genvar i = 0; i < TRACE_ST_W; i++) begin : gen_cdc_trace_status
     xpm_cdc_single_wrapper #(
@@ -337,6 +362,8 @@ module mhdma_pkt_trace
 
   assign frozen_cfg  = trace_st_cfg[TRACE_ST_FROZEN];
   assign wrapped_cfg = trace_st_cfg[TRACE_ST_WRAPPED];
+  assign by_err_cfg  = trace_st_cfg[TRACE_ST_BY_ERR];
+  assign by_sw_cfg   = trace_st_cfg[TRACE_ST_BY_SW];
 
   // After a re-arm, frozen_cfg holds the stale frozen value of the previous capture for a few
   // cycles. frozen_clr_pending masks the published frozen until the stale value clears.
@@ -348,19 +375,28 @@ module mhdma_pkt_trace
 
   always_ff @(posedge clk_mhdma_cfg) begin
     if (~resetn_mhdma_cfg) begin
-      frozen_cfg_q  <= 1'b0;
-      trace_frozen  <= 1'b0;
-      trace_wptr    <= '0;
-      trace_wrapped <= 1'b0;
+      frozen_cfg_q        <= 1'b0;
+      trace_frozen        <= 1'b0;
+      trace_wptr          <= '0;
+      trace_wrapped       <= 1'b0;
+      trace_frozen_by_err <= 1'b0;
+      trace_frozen_by_sw  <= 1'b0;
     end else begin
       frozen_cfg_q <= frozen_cfg;
       // publish frozen 1 cycle later; held low while a re-arm is still flushing the stale frozen
       trace_frozen <= frozen_cfg_q & ~frozen_clr_pending;
       // Capture once, on the frozen_cfg rising edge. The stale-high frozen_cfg after a re-arm or
       // an mhdma-domain reset has no rising edge, so a moving trace_wptr_q is never sampled.
-      if (frozen_cfg & ~frozen_cfg_q) begin
-        trace_wptr    <= trace_wptr_q;   // direct cross-domain capture, see xdc
-        trace_wrapped <= wrapped_cfg;
+      if (frozen_clr_pending) begin // / clear status when frozen deasserts
+        trace_wptr          <= '0;
+        trace_wrapped       <= 1'b0;
+        trace_frozen_by_err <= 1'b0;
+        trace_frozen_by_sw  <= 1'b0;
+      end else if (frozen_cfg & ~frozen_cfg_q) begin
+        trace_wptr          <= trace_wptr_q;   // direct cross-domain capture, see xdc
+        trace_wrapped       <= wrapped_cfg;
+        trace_frozen_by_err <= by_err_cfg;
+        trace_frozen_by_sw  <= by_sw_cfg;
       end
     end
   end
@@ -378,7 +414,8 @@ module mhdma_pkt_trace
   // trace_wptr_q and trace_wrapped_q cross to the cfg domain without per-bit coherency.
   // They must not change while trace_frozen_q is high.
   ap_static_while_frozen : assert property (@(posedge clk_mhdma) disable iff (~resetn_mhdma)
-    trace_frozen_q |-> $stable(trace_wptr_q) && $stable(trace_wrapped_q))
+    trace_frozen_q |-> $stable(trace_wptr_q) && $stable(trace_wrapped_q)
+                       && $stable(trace_by_err_q) && $stable(trace_by_sw_q))
   else $fatal(1, "%t > [ASSERT] trace_wptr_q/trace_wrapped_q changed while trace_frozen_q high", $time);
 
   // The cfg domain samples trace_wptr_q only at the frozen_cfg rising edge.

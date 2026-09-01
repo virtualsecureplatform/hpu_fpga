@@ -46,8 +46,8 @@ module tb_mhdma_pkt_trace;
 // ============================================================================================== --
 // localparam
 // ============================================================================================== --
-  localparam int CLK_HALF_PERIOD_MHDMA = 1.28; // fast capture clock
-  localparam int CLK_HALF_PERIOD_CFG   = 5;   // slow cfg clock (matches tb_mhdma_errors ratio)
+  localparam realtime CLK_HALF_PERIOD_MHDMA = 1.28; // fast capture clock, 2.56 ns period (silicon value)
+  localparam realtime CLK_HALF_PERIOD_CFG   = 5.0;   // slow cfg clock, 10 ns period. Non-integer ratio (32:125): edges slide to exercise CDC alignments
   localparam int ARST_ACTIVATION       = 17;
   localparam int SIM_TIMEOUT           = 2_000_000;
 
@@ -60,11 +60,11 @@ module tb_mhdma_pkt_trace;
   localparam int header_W              = $bits(command_t);
 
   // Enough cfg cycles to cover the timeout backstop (1024 mhdma cycles) plus CDC/publish latency.
-  localparam int FREEZE_WAIT_CFG = (TRACE_TAIL_TIMEOUT * CLK_HALF_PERIOD_MHDMA) / CLK_HALF_PERIOD_CFG + 200;
+  localparam int FREEZE_WAIT_CFG = int'((TRACE_TAIL_TIMEOUT * CLK_HALF_PERIOD_MHDMA) / CLK_HALF_PERIOD_CFG) + 200;
   // The timeout expressed in cfg cycles (~256 at the 4:1 ratio). A window safely BELOW it: if the
   // buffer freezes within this window after a trigger with no post-traffic, the timeout terminal
   // compare fired too early (premature saturation / off-by-one). Deterministic, no model needed.
-  localparam int TIMEOUT_CFG        = (TRACE_TAIL_TIMEOUT * CLK_HALF_PERIOD_MHDMA) / CLK_HALF_PERIOD_CFG;
+  localparam int TIMEOUT_CFG        = int'((TRACE_TAIL_TIMEOUT * CLK_HALF_PERIOD_MHDMA) / CLK_HALF_PERIOD_CFG);
   localparam int TIMEOUT_EARLY_WIN  = (TIMEOUT_CFG * 3) / 4;   // ~3/4 of the timeout, safely early
   // SW freeze latency (arm/freeze CDC + freeze margin + status publish CDC): tens of cfg cycles, and
   // safely below TIMEOUT_CFG so a freeze within this bound can only be the SW path (no error asserted).
@@ -160,8 +160,11 @@ module tb_mhdma_pkt_trace;
   logic                   trace_rd_en;
   logic [REG_DATA_W-1:0]  trace_rd_data;
   logic                   trace_frozen;
-  logic [TRACE_AW-1:0]    trace_wptr;
-  logic                   trace_wrapped;
+  logic [TRACE_AW-1:0]        trace_wptr;
+  logic                       trace_wrapped;
+  logic                       trace_frozen_by_err;
+  logic                       trace_frozen_by_sw;
+  logic [TRACE_RD_PTR_W-1:0]  trace_rd_ptr;
 
   mhdma_pkt_trace dut (
     // capture side (clk_mhdma)
@@ -178,14 +181,25 @@ module tb_mhdma_pkt_trace;
     .trace_freeze     (trace_freeze    ),
     .trace_rd_en      (trace_rd_en     ),
     .trace_rd_data    (trace_rd_data   ),
-    .trace_frozen     (trace_frozen    ),
-    .trace_wptr       (trace_wptr      ),
-    .trace_wrapped    (trace_wrapped   )
+    .trace_frozen        (trace_frozen        ),
+    .trace_wptr          (trace_wptr          ),
+    .trace_wrapped       (trace_wrapped       ),
+    .trace_frozen_by_err (trace_frozen_by_err ),
+    .trace_frozen_by_sw  (trace_frozen_by_sw  ),
+    .trace_rd_ptr        (trace_rd_ptr        )
   );
 
 // ============================================================================================== --
 // Concurrent assertions (white-box: reference DUT internals). A failure sets error_assert.
 // ============================================================================================== --
+  // Freeze cause: a published freeze always carries at least one cause.
+  assert property (@(posedge clk_mhdma_cfg) disable iff (~resetn_mhdma_cfg)
+    trace_frozen |-> (trace_frozen_by_err | trace_frozen_by_sw))
+  else begin
+    $display("%t > [ASSERT] trace_frozen high with no freeze cause", $time);
+    error_assert = 1'b1;
+  end
+
   // Read gating: while not frozen the readout returns a sentinel and the read pointer does not
   // advance on a read strobe (prevents torn reads racing live capture).
   assert property (@(posedge clk_mhdma_cfg) disable iff (~resetn_mhdma_cfg)
