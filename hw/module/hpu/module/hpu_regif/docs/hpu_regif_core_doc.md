@@ -1,5 +1,5 @@
 # HPU_REGIF_CORE documentation
-**Date**: 2026-08-18
+**Date**: 2026-09-01
 **Tool Version**: 27d9e880d531030160fd8749c606142942d5558d
 
 ## RegisterMap Overview
@@ -44,7 +44,7 @@ Below is a summary of all the registers in the current register map:
 | [status_3in3](#section-status-3in3) | 0x30010 | 0x4 | HPU status of parts 2in3 and 3in3 |
 | [bsk_avail](#section-bsk-avail) | 0x31000 | 0x8 | BSK availability configuration |
 | [runtime_3in3](#section-runtime-3in3) | 0x32000 | 0x48 | Runtime information |
-| [mhdma_system](#section-mhdma-system) | 0x50000 | 0x44 | system configuration |
+| [mhdma_system](#section-mhdma-system) | 0x50000 | 0x48 | system configuration |
 | [mhdma_reset](#section-mhdma-reset) | 0x50090 | 0x8 | Controllable resets for transceivers |
 | [mhdma_request](#section-mhdma-request) | 0x50100 | 0xa8 | Request registers interface |
 | [mhdma_lane](#section-mhdma-lane) | 0x50200 | 0x4 | Line parameter sections |
@@ -4041,7 +4041,7 @@ Below is a summary of all the registers in the current section mhdma_system:
 | [timeout_read_req](#register-mhdma-systemtimeout-read-req) | 0x50008 | RW |  Timeout: time before re-launching a request, in clock cycles |
 | [retry_max](#register-mhdma-systemretry-max) | 0x5000c | RW |  Timeout: maximum number of times we should do retries for both Notify & Retry  |
 | [fsm_value](#register-mhdma-systemfsm-value) | 0x50010 | R. |  Live FSM snapshot: [22:20] formatter, [17:16] slave ciphertext-emission, [13:12] slave notify-rx, [9:8] master burst, [5:4] master read-request, [1:0] master notify |
-| [errors](#register-mhdma-systemerrors) | 0x50014 | R. |  Sticky error flags, cleared by reading this register: [31] software-injected error (see error_mask.inject_err), [13] master read-request cmd queue overflow, [12] master notify cmd queue overflow, [11] formatter master cmd discard, [10] formatter slave cmd discard, [9] formatter payload gap, [8] decoder rx FIFO overflow, [7] slave read-request cmd queue overflow, [6] AXI4 HBM read response error, [5] master max retry read-request hit, [4] master max retry notify hit, [3] ciphertext sequence number mismatch, [2:1] per-PC AXI4 HBM write error, [0] multi-HPU one-hot ID violation |
+| [errors](#register-mhdma-systemerrors) | 0x50014 | R. |  Sticky error flags, cleared by reading this register: [31] software-injected error (see trace_cmd.inject_err), [13] master read-request cmd queue overflow, [12] master notify cmd queue overflow, [11] formatter master cmd discard, [10] formatter slave cmd discard, [9] formatter payload gap, [8] decoder rx FIFO overflow, [7] slave read-request cmd queue overflow, [6] AXI4 HBM read response error, [5] master max retry read-request hit, [4] master max retry notify hit, [3] ciphertext sequence number mismatch, [2:1] per-PC AXI4 HBM write error, [0] multi-HPU one-hot ID violation |
 | [hpu_id_0](#register-mhdma-systemhpu-id-0) | 0x50018 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
 | [hpu_id_1](#register-mhdma-systemhpu-id-1) | 0x5001c | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
 | [hpu_id_2](#register-mhdma-systemhpu-id-2) | 0x50020 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
@@ -4050,9 +4050,10 @@ Below is a summary of all the registers in the current section mhdma_system:
 | [hpu_id_5](#register-mhdma-systemhpu-id-5) | 0x5002c | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
 | [hpu_id_6](#register-mhdma-systemhpu-id-6) | 0x50030 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
 | [hpu_id_7](#register-mhdma-systemhpu-id-7) | 0x50034 | RW |  HPU table entry: [31] one-hot flag marking this entry as the local HPU, [23:0] 24-bit MAC address for Ethernet frame filtering and header generation |
-| [trace_ctrl](#register-mhdma-systemtrace-ctrl) | 0x50038 | RW |  Packet-trace control and status: write frozen=1 to freeze capture now, or frozen=0 to flush and re-arm. |
-| [trace_data](#register-mhdma-systemtrace-data) | 0x5003c | R. |  Packet-trace read window: each read returns the next 32-bit word of the frozen trace and advances the read pointer. |
-| [error_mask](#register-mhdma-systemerror-mask) | 0x50040 | RW |  Packet-trace trigger mask + software error inject. |
+| [trace_cmd](#register-mhdma-systemtrace-cmd) | 0x50038 | RW |  Packet-trace commands: one-hot write-1-to-act strobes. Reads return zero. |
+| [trace_status](#register-mhdma-systemtrace-status) | 0x5003c | R. |  Packet-trace status. All fields except rd_ptr are static while frozen=1. |
+| [trace_data](#register-mhdma-systemtrace-data) | 0x50040 | R. |  Packet-trace read window: each read returns the next 32-bit word of the frozen trace and advances trace_status.rd_ptr. |
+| [error_mask](#register-mhdma-systemerror-mask) | 0x50044 | RW |  Packet-trace trigger mask. |
 
 
 ---
@@ -4132,7 +4133,7 @@ Register timeout_read_req contains following Sub-fields:
 
 ### Register mhdma-system.retry-max
 
-- **Description**: Timeout: maximum number of times we should do retries for both Notify & Retry
+- **Description**: Timeout: maximum number of times we should do retries for both Notify & Retry 
 - **Owner**: User
 - **Read Access**: Read
 - **Write Access**: Write
@@ -4171,7 +4172,7 @@ Register retry_max contains following Sub-fields:
 
 ### Register mhdma-system.errors
 
-- **Description**: Sticky error flags, cleared by reading this register: [31] software-injected error (see error_mask.inject_err), [13] master read-request cmd queue overflow, [12] master notify cmd queue overflow, [11] formatter master cmd discard, [10] formatter slave cmd discard, [9] formatter payload gap, [8] decoder rx FIFO overflow, [7] slave read-request cmd queue overflow, [6] AXI4 HBM read response error, [5] master max retry read-request hit, [4] master max retry notify hit, [3] ciphertext sequence number mismatch, [2:1] per-PC AXI4 HBM write error, [0] multi-HPU one-hot ID violation
+- **Description**: Sticky error flags, cleared by reading this register: [31] software-injected error (see trace_cmd.inject_err), [13] master read-request cmd queue overflow, [12] master notify cmd queue overflow, [11] formatter master cmd discard, [10] formatter slave cmd discard, [9] formatter payload gap, [8] decoder rx FIFO overflow, [7] slave read-request cmd queue overflow, [6] AXI4 HBM read response error, [5] master max retry read-request hit, [4] master max retry notify hit, [3] ciphertext sequence number mismatch, [2:1] per-PC AXI4 HBM write error, [0] multi-HPU one-hot ID violation
 - **Owner**: Kernel
 - **Read Access**: ReadNotify
 - **Write Access**: None
@@ -4304,9 +4305,9 @@ Register retry_max contains following Sub-fields:
 ---
 
 
-### Register mhdma-system.trace-ctrl
+### Register mhdma-system.trace-cmd
 
-- **Description**: Packet-trace control and status: write frozen=1 to freeze capture now, or frozen=0 to flush and re-arm.
+- **Description**: Packet-trace commands: one-hot write-1-to-act strobes. Reads return zero.
 - **Owner**: Kernel
 - **Read Access**: Read
 - **Write Access**: WriteNotify
@@ -4316,13 +4317,41 @@ Register retry_max contains following Sub-fields:
 
 #### Field Details
 
-Register trace_ctrl contains following Sub-fields:
+Register trace_cmd contains following Sub-fields:
 
 | Field Name | Offset_b | Size_b | Default      | Description   |
 |-----------:|:--------:|:------:|:------------:|:--------------|
-| frozen      | 0 | 1 |0| An error stopped capture; the buffer is frozen and ready to read |
-| wptr      | 1 | 6 |0| Write pointer captured at freeze (= oldest entry index; rotate the ring by this to order oldest->newest when wrapped=1) |
-| wrapped      | 7 | 1 |0| Ring wrapped since last re-arm: 1 = all TRACE_DEPTH entries valid (rotate by wptr); 0 = only entries [0 .. wptr-1] valid (partial fill, no rotation). Re-arm does not clear the RAM, so slots beyond a partial fill hold stale prior-session data |
+| freeze      | 0 | 1 |0| Write 1 to freeze the capture now (sets trace_status.frozen_by_sw) |
+| rearm      | 1 | 1 |0| Write 1 to flush and re-arm the capture: clears frozen, wptr, wrapped, rd_ptr and the freeze causes. The RAM is not cleared |
+| inject_err      | 2 | 1 |0| Write 1 to inject a synthetic error: triggers the trace and sets mhdma_system.errors[31]. Sticky, cleared by reading mhdma_system.errors |
+
+
+
+---
+
+
+### Register mhdma-system.trace-status
+
+- **Description**: Packet-trace status. All fields except rd_ptr are static while frozen=1.
+- **Owner**: Kernel
+- **Read Access**: Read
+- **Write Access**: None
+- **Offset**: 0x5003c
+- **Default**: C.f. fields
+
+
+#### Field Details
+
+Register trace_status contains following Sub-fields:
+
+| Field Name | Offset_b | Size_b | Default      | Description   |
+|-----------:|:--------:|:------:|:------------:|:--------------|
+| frozen      | 0 | 1 |0| Capture is frozen; the buffer is ready to read |
+| frozen_by_err      | 1 | 1 |0| The freeze cause is a masked or injected mhdma error |
+| frozen_by_sw      | 2 | 1 |0| The freeze cause is a trace_cmd.freeze command |
+| wrapped      | 3 | 1 |0| Ring wrapped since last re-arm: 1 = all TRACE_DEPTH entries valid (rotate by wptr); 0 = only entries [0 .. wptr-1] valid (partial fill, no rotation). Re-arm does not clear the RAM, so slots beyond a partial fill hold stale prior-session data |
+| wptr      | 4 | 6 |0| Write pointer captured at freeze (= oldest entry index; rotate the ring by this to order oldest->newest when wrapped=1) |
+| rd_ptr      | 16 | 8 |0| Read pointer of the trace_data window, in 32-bit words: entry = rd_ptr[7:2], word = rd_ptr[1:0]. Cleared by trace_cmd.rearm. The read has no side effect |
 
 
 
@@ -4331,11 +4360,11 @@ Register trace_ctrl contains following Sub-fields:
 
 ### Register mhdma-system.trace-data
 
-- **Description**: Packet-trace read window: each read returns the next 32-bit word of the frozen trace and advances the read pointer.
+- **Description**: Packet-trace read window: each read returns the next 32-bit word of the frozen trace and advances trace_status.rd_ptr.
 - **Owner**: Kernel
 - **Read Access**: ReadNotify
 - **Write Access**: None
-- **Offset**: 0x5003c
+- **Offset**: 0x50040
 - **Default**: 0
 
 
@@ -4346,11 +4375,11 @@ Register trace_ctrl contains following Sub-fields:
 
 ### Register mhdma-system.error-mask
 
-- **Description**: Packet-trace trigger mask + software error inject.
+- **Description**: Packet-trace trigger mask.
 - **Owner**: User
 - **Read Access**: Read
 - **Write Access**: Write
-- **Offset**: 0x50040
+- **Offset**: 0x50044
 - **Default**: C.f. fields
 
 
@@ -4361,7 +4390,6 @@ Register error_mask contains following Sub-fields:
 | Field Name | Offset_b | Size_b | Default      | Description   |
 |-----------:|:--------:|:------:|:------------:|:--------------|
 | mask      | 0 | 31 |2147483647| Per-error trace-trigger enable, aligned to mhdma_system.errors[11:0]; bits above the mhdma error width are ignored |
-| inject_err      | 31 | 1 |0| Write 0->1 to inject a synthetic error: triggers the trace and sets mhdma_system.errors[31]. Sticky, cleared by reading mhdma_system.errors |
 
 
 

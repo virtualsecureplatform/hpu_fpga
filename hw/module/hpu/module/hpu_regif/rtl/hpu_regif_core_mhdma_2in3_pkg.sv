@@ -1,7 +1,7 @@
 // ============================================================================================== //
 // Description  : register  map address definition package
 // This file was generated with rust regmap generator:
-//  * Date:  2026-08-18
+//  * Date:  2026-09-01
 //  * Tool_version: 27d9e880d531030160fd8749c606142942d5558d
 // ---------------------------------------------------------------------------------------------- //
 //
@@ -41,18 +41,29 @@ package hpu_regif_core_mhdma_2in3_pkg;
   localparam int MHDMA_SYSTEM_HPU_ID_6_OFS = 'h50030;
   localparam int MHDMA_SYSTEM_HPU_ID_7_OFS = 'h50034;
   typedef struct packed {
-    logic [(24-1):0] padding_8;
-    logic [(1-1):0] wrapped;
-    logic [(6-1):0] wptr;
-    logic [(1-1):0] frozen;
-   } mhdma_system_trace_ctrl_t;
-  localparam int MHDMA_SYSTEM_TRACE_CTRL_OFS = 'h50038;
-  localparam int MHDMA_SYSTEM_TRACE_DATA_OFS = 'h5003c;
-  typedef struct packed {
+    logic [(29-1):0] padding_3;
     logic [(1-1):0] inject_err;
+    logic [(1-1):0] rearm;
+    logic [(1-1):0] freeze;
+   } mhdma_system_trace_cmd_t;
+  localparam int MHDMA_SYSTEM_TRACE_CMD_OFS = 'h50038;
+  typedef struct packed {
+    logic [(8-1):0] padding_24;
+    logic [(8-1):0] rd_ptr;
+    logic [(6-1):0] padding_10;
+    logic [(6-1):0] wptr;
+    logic [(1-1):0] wrapped;
+    logic [(1-1):0] frozen_by_sw;
+    logic [(1-1):0] frozen_by_err;
+    logic [(1-1):0] frozen;
+   } mhdma_system_trace_status_t;
+  localparam int MHDMA_SYSTEM_TRACE_STATUS_OFS = 'h5003c;
+  localparam int MHDMA_SYSTEM_TRACE_DATA_OFS = 'h50040;
+  typedef struct packed {
+    logic [(1-1):0] padding_31;
     logic [(31-1):0] mask;
    } mhdma_system_error_mask_t;
-  localparam int MHDMA_SYSTEM_ERROR_MASK_OFS = 'h50040;
+  localparam int MHDMA_SYSTEM_ERROR_MASK_OFS = 'h50044;
   typedef struct packed {
     logic [(20-1):0] padding_12;
     logic [(4-1):0] rx_rst;

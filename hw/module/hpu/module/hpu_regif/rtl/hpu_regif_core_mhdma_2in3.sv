@@ -1,7 +1,7 @@
 // ============================================================================================== //
 // Description  : Axi4-lite register bank
 // This file was generated with rust regmap generator:
-//  * Date:  2026-08-18
+//  * Date:  2026-09-01
 //  * Tool_version: 27d9e880d531030160fd8749c606142942d5558d
 // ---------------------------------------------------------------------------------------------- //
 // xR[n]W[na]
@@ -86,10 +86,13 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
     , output logic [REG_DATA_W-1: 0] r_mhdma_system_hpu_id_6
   // Register IO: mhdma_system_hpu_id_7
     , output logic [REG_DATA_W-1: 0] r_mhdma_system_hpu_id_7
-  // Register IO: mhdma_system_trace_ctrl
-    , output mhdma_system_trace_ctrl_t r_mhdma_system_trace_ctrl
-    , input  mhdma_system_trace_ctrl_t r_mhdma_system_trace_ctrl_upd
-    , output logic r_mhdma_system_trace_ctrl_wr_en
+  // Register IO: mhdma_system_trace_cmd
+    , output mhdma_system_trace_cmd_t r_mhdma_system_trace_cmd
+    , input  mhdma_system_trace_cmd_t r_mhdma_system_trace_cmd_upd
+    , output logic r_mhdma_system_trace_cmd_wr_en
+  // Register IO: mhdma_system_trace_status
+    , output mhdma_system_trace_status_t r_mhdma_system_trace_status
+    , input  mhdma_system_trace_status_t r_mhdma_system_trace_status_upd
   // Register IO: mhdma_system_trace_data
     , output logic [REG_DATA_W-1: 0] r_mhdma_system_trace_data
     , input  logic [REG_DATA_W-1: 0] r_mhdma_system_trace_data_upd
@@ -446,13 +449,24 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
 //-- Default mhdma_system_hpu_id_7
   logic [REG_DATA_W-1:0]mhdma_system_hpu_id_7_default;
   assign mhdma_system_hpu_id_7_default = 'h0;
-//-- Default mhdma_system_trace_ctrl
-  mhdma_system_trace_ctrl_t mhdma_system_trace_ctrl_default;
+//-- Default mhdma_system_trace_cmd
+  mhdma_system_trace_cmd_t mhdma_system_trace_cmd_default;
   always_comb begin
-    mhdma_system_trace_ctrl_default = 'h0;
-    mhdma_system_trace_ctrl_default.frozen = 'h0;
-    mhdma_system_trace_ctrl_default.wptr = 'h0;
-    mhdma_system_trace_ctrl_default.wrapped = 'h0;
+    mhdma_system_trace_cmd_default = 'h0;
+    mhdma_system_trace_cmd_default.freeze = 'h0;
+    mhdma_system_trace_cmd_default.rearm = 'h0;
+    mhdma_system_trace_cmd_default.inject_err = 'h0;
+  end
+//-- Default mhdma_system_trace_status
+  mhdma_system_trace_status_t mhdma_system_trace_status_default;
+  always_comb begin
+    mhdma_system_trace_status_default = 'h0;
+    mhdma_system_trace_status_default.frozen = 'h0;
+    mhdma_system_trace_status_default.frozen_by_err = 'h0;
+    mhdma_system_trace_status_default.frozen_by_sw = 'h0;
+    mhdma_system_trace_status_default.wrapped = 'h0;
+    mhdma_system_trace_status_default.wptr = 'h0;
+    mhdma_system_trace_status_default.rd_ptr = 'h0;
   end
 //-- Default mhdma_system_trace_data
   logic [REG_DATA_W-1:0]mhdma_system_trace_data_default;
@@ -462,7 +476,6 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
   always_comb begin
     mhdma_system_error_mask_default = 'h0;
     mhdma_system_error_mask_default.mask = 'h7fffffff;
-    mhdma_system_error_mask_default.inject_err = 'h0;
   end
 //-- Default mhdma_reset_datapath
   mhdma_reset_datapath_t mhdma_reset_datapath_default;
@@ -813,25 +826,36 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
       r_mhdma_system_hpu_id_7       <= r_mhdma_system_hpu_id_7D;
     end
   end
-// Register FF: mhdma_system_trace_ctrl
-  logic [REG_DATA_W-1:0] r_mhdma_system_trace_ctrlD;
-  assign r_mhdma_system_trace_ctrlD       = r_mhdma_system_trace_ctrl_upd;
-  logic r_mhdma_system_trace_ctrl_wr_enD;
-  assign r_mhdma_system_trace_ctrl_wr_enD = wr_en_ok && (wr_add[AXIL_ADD_RANGE_W-1:0] == MHDMA_SYSTEM_TRACE_CTRL_OFS[AXIL_ADD_RANGE_W-1:0]);
+// Register FF: mhdma_system_trace_cmd
+  logic [REG_DATA_W-1:0] r_mhdma_system_trace_cmdD;
+  assign r_mhdma_system_trace_cmdD       = r_mhdma_system_trace_cmd_upd;
+  logic r_mhdma_system_trace_cmd_wr_enD;
+  assign r_mhdma_system_trace_cmd_wr_enD = wr_en_ok && (wr_add[AXIL_ADD_RANGE_W-1:0] == MHDMA_SYSTEM_TRACE_CMD_OFS[AXIL_ADD_RANGE_W-1:0]);
   always_ff @(posedge clk) begin
     if (!s_rst_n) begin
-      r_mhdma_system_trace_ctrl_wr_en <= 1'b0;
+      r_mhdma_system_trace_cmd_wr_en <= 1'b0;
     end
     else begin
-      r_mhdma_system_trace_ctrl_wr_en <= r_mhdma_system_trace_ctrl_wr_enD;
+      r_mhdma_system_trace_cmd_wr_en <= r_mhdma_system_trace_cmd_wr_enD;
     end
   end
   always_ff @(posedge clk) begin
     if (!s_rst_n) begin
-      r_mhdma_system_trace_ctrl       <= mhdma_system_trace_ctrl_default;
+      r_mhdma_system_trace_cmd       <= mhdma_system_trace_cmd_default;
     end
     else begin
-      r_mhdma_system_trace_ctrl       <= r_mhdma_system_trace_ctrlD;
+      r_mhdma_system_trace_cmd       <= r_mhdma_system_trace_cmdD;
+    end
+  end
+// Register FF: mhdma_system_trace_status
+  logic [REG_DATA_W-1:0] r_mhdma_system_trace_statusD;
+  assign r_mhdma_system_trace_statusD       = r_mhdma_system_trace_status_upd;
+  always_ff @(posedge clk) begin
+    if (!s_rst_n) begin
+      r_mhdma_system_trace_status       <= mhdma_system_trace_status_default;
+    end
+    else begin
+      r_mhdma_system_trace_status       <= r_mhdma_system_trace_statusD;
     end
   end
 // Register FF: mhdma_system_trace_data
@@ -1338,8 +1362,11 @@ import hpu_regif_core_mhdma_2in3_pkg::*;
           MHDMA_SYSTEM_HPU_ID_7_OFS[AXIL_ADD_RANGE_W-1:0]: begin // register mhdma_system_hpu_id_7
             axil_rdataD = r_mhdma_system_hpu_id_7;
           end
-          MHDMA_SYSTEM_TRACE_CTRL_OFS[AXIL_ADD_RANGE_W-1:0]: begin // register mhdma_system_trace_ctrl
-            axil_rdataD = r_mhdma_system_trace_ctrl;
+          MHDMA_SYSTEM_TRACE_CMD_OFS[AXIL_ADD_RANGE_W-1:0]: begin // register mhdma_system_trace_cmd
+            axil_rdataD = r_mhdma_system_trace_cmd;
+          end
+          MHDMA_SYSTEM_TRACE_STATUS_OFS[AXIL_ADD_RANGE_W-1:0]: begin // register mhdma_system_trace_status
+            axil_rdataD = r_mhdma_system_trace_status;
           end
           MHDMA_SYSTEM_TRACE_DATA_OFS[AXIL_ADD_RANGE_W-1:0]: begin // register mhdma_system_trace_data
             axil_rdataD = r_mhdma_system_trace_data;
