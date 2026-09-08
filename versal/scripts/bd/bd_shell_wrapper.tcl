@@ -361,11 +361,12 @@ proc create_hier_cell_shell_wrapper { parentCell nameHier } {
   ####################################
   for { set i 0}  {$i < $IRQ_NB} {incr i} {
     set irq_id [expr $IRQ_START_ID + $i]
-    set xlslice_tmp [create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 xlslice_${irq_id}]
+    set xlslice_tmp [create_bd_cell -type inline_hdl -vlnv xilinx.com:inline_hdl:ilslice:1.0 xlslice_${irq_id}]
     set_property -dict [list \
+      CONFIG.DIN_WIDTH $IRQ_NB \
       CONFIG.DIN_FROM $i \
       CONFIG.DIN_TO $i \
-      CONFIG.DIN_WIDTH $IRQ_NB \
+      CONFIG.DOUT_WIDTH {1} \
     ] $xlslice_tmp
   }
 

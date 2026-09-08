@@ -20,7 +20,7 @@ source ${BD_SCRIPTS_DIR}/bd_main.tcl
 ################################################################
 # Check if script is running in correct Vivado version.
 ################################################################
-check_version 2025.1
+check_version 2026.1
 
 ################################################################
 # Global variables
