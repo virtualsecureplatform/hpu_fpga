@@ -804,7 +804,7 @@ uint32_t parse_iop(
 
       uint32_t msg_pos = 1;
       while ( imm_header->header.block > ((8*sizeof(uint16_t))/MSG_WIDTH)*msg_pos) {
-        if ((msg_pos + 1) >= IMMEDIAT_MSG_MAX_SLOT) {
+        if (msg_pos >= IMMEDIAT_MSG_MAX_SLOT) {
           PLL_ERR("parse_iop", "immediate too wide (max %d msg words)", IMMEDIAT_MSG_MAX_SLOT);
           return 0;
         }
@@ -812,10 +812,13 @@ uint32_t parse_iop(
         bfr =stream[stream_pos];
         stream_pos++;
 
-        // Fill current slot
+        // Fill current slot from 0 to IMMEDIAT_MSG_MAX_SLOT-1
         imm->cst[imm_pos].msg[msg_pos] = bfr & 0xffff;
-        imm->cst[imm_pos].msg[msg_pos+1] = (bfr>> 16) & 0xffff;
-        msg_pos +=2;
+        msg_pos += 1;
+        if (msg_pos < IMMEDIAT_MSG_MAX_SLOT) {
+          imm->cst[imm_pos].msg[msg_pos] = (bfr>> 16) & 0xffff;
+          msg_pos += 1;
+        }
       };
       // Fill immediat length
       imm->cst[imm_pos].len = msg_pos;

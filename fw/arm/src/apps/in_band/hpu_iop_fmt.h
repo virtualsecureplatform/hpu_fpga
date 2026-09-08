@@ -126,7 +126,7 @@ typedef union {
 // 255, not 256: OperandBundle_t.len is uint8_t and must hold the count.
 #define OPERAND_BUNDLE_MAX_SLOT 255
 #define IMMEDIAT_BUNDLE_MAX_SLOT 4
-#define IMMEDIAT_MSG_MAX_SLOT 6
+#define IMMEDIAT_MSG_MAX_SLOT 16
 // NB: Two words are used for each operands (i.e. props and addr)
 #define IOP_MAX_WORDS (2 + 2*(2*OPERAND_BUNDLE_MAX_SLOT) + IMMEDIAT_BUNDLE_MAX_SLOT*(IMMEDIAT_MSG_MAX_SLOT/2))
 #define IOP_MAX_BYTES (IOP_MAX_WORDS * sizeof(uint32_t))
