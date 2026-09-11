@@ -156,7 +156,7 @@ namespace eval _nsp_hpu {
     # pseudo-channel, so to avoid more "creative" solutions from the NOC router, we're forcing
     # exactly two NMUs to use the same NOC lane by setting them to the NOC lane bandwidth divided by
     # two.
-    variable HPU_BSK_HBM_RD_BW 6000
+    variable HPU_BSK_HBM_RD_BW 5000
     variable HPU_BSK_HBM_WR_BW 0
     variable HPU_BSK_HBM_RD_BURST_AVG 128
     variable HPU_BSK_HBM_WR_BURST_AVG 128
