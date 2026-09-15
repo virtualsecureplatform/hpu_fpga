@@ -152,10 +152,9 @@ namespace eval _nsp_hpu {
     # NOTE: The BSK needs a minimum of 5000Mbps. The NOC bandwidth across all SLRs is roughly half
     # of the normal physical lane bandwidth because of a limit in the number of outstanding
     # transactions in the NMU. So, we would only get roughly 5960Mbps per NMU, which is good enough.
-    # However, the HBM access pattern is now adapted to having two NMUs connected directly to a single
-    # pseudo-channel, so to avoid more "creative" solutions from the NOC router, we're forcing
-    # exactly two NMUs to use the same NOC lane by setting them to the NOC lane bandwidth divided by
-    # two.
+    # The HBM access pattern relies on two NMUs connected directly to one pseudo-channel.
+    # Do not ask for more than what is needed here: with 6000 (half a NOC lane) NOC compiler breaks
+    # functionality by overwriting one DDR channel needed to boot.
     variable HPU_BSK_HBM_RD_BW 5000
     variable HPU_BSK_HBM_WR_BW 0
     variable HPU_BSK_HBM_RD_BURST_AVG 128
