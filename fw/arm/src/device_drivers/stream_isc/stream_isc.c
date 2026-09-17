@@ -74,7 +74,7 @@ void flush_dop_buffer_to_isc(uint32_t *dop_buffer, int number_of_dop) {
     write_isc_rv = write_isc(dop_buffer, (uint32_t) (number_of_dop * sizeof(uint32_t)));
     while (write_isc_rv == RETRY) {
         //PLL_DBG("UCORE", "retry flush %d value to isc", number_of_dop);
-        iOSAL_Task_SleepTicks(20);
+        iOSAL_Task_SleepTicks(1);
         write_isc_rv = write_isc(dop_buffer, (uint32_t) (number_of_dop * sizeof(uint32_t)));
     }
 }
