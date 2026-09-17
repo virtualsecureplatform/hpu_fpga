@@ -323,9 +323,12 @@ void src_store_inits(uint8_t iid, OperandBundle_t *iop_src) {
 
 uint16_t src_store_get_waiting(uint8_t iid, uint8_t src_iid) {
   for (int i = 0; i < MAX_DST_VARS; i++) {
+    // Test the operand first: skips the 128 block reads of the other operands
+    if (src_store.src_iid[iid][i] != src_iid) {
+      continue;
+    }
     for (int j = 0; j < MAX_VAR_BLKS; j++) {
-      if (src_store.state[iid][i][j] == OPERAND_STATE_READ_PENDING
-        && src_store.src_iid[iid][i] == src_iid) {
+      if (src_store.state[iid][i][j] == OPERAND_STATE_READ_PENDING) {
         return ((i << 8) + j);
       }
     }
@@ -476,8 +479,6 @@ void iop_teardown(uint8_t iid) {
   }
   //reset tails in remote dst queue
   dst_notifyq_reset_tails();
-  //flush remote source queue
-  src_store_reset_iop(iid);
   //reset mhdma_table for this IOp (all local notify & ld_b2b & wait)
   mhdma_table_reset_iop(iid);
   //cnt remote dst to be sent

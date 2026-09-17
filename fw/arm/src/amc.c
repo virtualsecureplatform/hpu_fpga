@@ -549,7 +549,6 @@ void vMhdmaWorkerTask(void *pvParameters) {
           uint8_t ack_iid = dop.sync.iid;
           //PLL_ERR("MhdmaWorker", "[HPU%d] iop_teardown starting on iid %d (state %d)", phys_hpu_id, ack_iid, iop_state[ack_iid].state);
           iop_teardown(ack_iid);
-          PLL_DBG("MhdmaWorker", "[HPU%d] iop_teardown on iid %d done", phys_hpu_id, ack_iid);
           //print_iop_state();
 
           // Write ack value in queue body
@@ -560,6 +559,10 @@ void vMhdmaWorkerTask(void *pvParameters) {
           ackq_head += 1;
           *toAmiIopAckqHead = ackq_head;
           HAL_FLUSH_CACHE_DATA( (uintptr_t)toAmiIopAckqHead, sizeof(uint32_t));
+          // Debug print after the ack: it can wait on the print semaphore
+          PLL_DBG("MhdmaWorker", "[HPU%d] iop_teardown on iid %d done", phys_hpu_id, ack_iid);
+          // Flush remote source queue after the ack, off the critical path
+          src_store_reset_iop(ack_iid);
           break;
         }
 
