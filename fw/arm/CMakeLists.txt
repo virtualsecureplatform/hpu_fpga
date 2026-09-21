@@ -79,15 +79,27 @@ else()
     execute_process(COMMAND ./scripts/getVersion.sh amc WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     execute_process(COMMAND ./getVersion.sh gcq WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/device_drivers/gcq_driver )
 
+    #BSP created by scripts/create_bsp.py
+    set(BSP_DIR ${CMAKE_SOURCE_DIR}/amc_bsp/ws/amc_bsp)
+    set(BSP_LIB_DIR ${BSP_DIR}/export/amc_bsp/sw/freertos_domain/lib)
+    set(BSP_INCLUDE_DIR ${BSP_DIR}/psv_cortexr5_0/freertos_domain/bsp/include)
+    if(NOT EXISTS ${BSP_LIB_DIR}/libxil.a)
+        message(FATAL_ERROR "BSP not found in ${BSP_LIB_DIR}: run scripts/build.sh with -xsa first")
+    endif()
+    #the driver headers select their struct layouts on this define, as when the BSP was built
+    add_definitions(-DSDT)
+
     #adding static libraries
-    find_library(FREERTOS_LIB NAMES freertos PATHS amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
-    find_library(XIL_LIB NAMES xil PATHS amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
-    find_library(XIL_FPGA NAMES xilfpga PATHS amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
-    find_library(XIL_MAILBOX NAMES xilmailbox PATHS amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
+    find_library(FREERTOS_LIB NAMES freertos PATHS ${BSP_LIB_DIR} NO_DEFAULT_PATH)
+    find_library(XIL_LIB NAMES xil PATHS ${BSP_LIB_DIR} NO_DEFAULT_PATH)
+    find_library(XIL_TIMER NAMES xiltimer PATHS ${BSP_LIB_DIR} NO_DEFAULT_PATH)
+    find_library(XIL_STANDALONE NAMES xilstandalone PATHS ${BSP_LIB_DIR} NO_DEFAULT_PATH)
+    find_library(XIL_FPGA NAMES xilfpga PATHS ${BSP_LIB_DIR} NO_DEFAULT_PATH)
+    find_library(XIL_SECURE NAMES xilsecure PATHS ${BSP_LIB_DIR} NO_DEFAULT_PATH)
+    find_library(XIL_MAILBOX NAMES xilmailbox PATHS ${BSP_LIB_DIR} NO_DEFAULT_PATH)
 
     #Include directories
-    include_directories(amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/include)
-    include_directories(amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
+    include_directories(${BSP_INCLUDE_DIR})
     include_directories(src/common/include)
     include_directories(src/common/core_libs/pll)
     include_directories(src/common/core_libs/evl)
@@ -170,7 +182,7 @@ else()
 
     #linking libraries with executable
     if(OS MATCHES "^(FreeRTOS)$")
-        target_link_libraries(amc.elf "-Wl,-T -Wl,../src/lscript.ld" -Wl,--start-group,${XIL_LIB},${FREERTOS_LIB},-lgcc,-lc,--end-group -Wl,--start-group,${XIL_FPGA},${XIL_LIB},-lgcc,-lc,--end-group -Wl,--start-group,${XIL_MAILBOX},${XIL_LIB},-lgcc,-lc,--end-group)
+        target_link_libraries(amc.elf "-Wl,-T -Wl,../src/lscript.ld" -Wl,--start-group,${XIL_TIMER},${XIL_STANDALONE},${XIL_LIB},${FREERTOS_LIB},${XIL_FPGA},${XIL_SECURE},${XIL_MAILBOX},-lgcc,-lc,--end-group)
         target_compile_definitions(amc.elf PRIVATE $<$<CONFIG:Debug>:DEBUG_PRINT> GCQ_MAX_INSTANCES=1)
     endif()
 
