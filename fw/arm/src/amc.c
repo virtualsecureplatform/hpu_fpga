@@ -21,6 +21,7 @@
 
 #include "xil_io.h"
 #include "xscugic.h"
+#include "xinterrupt_wrap.h"
 /* osal */
 #include "osal.h"
 #include <stdint.h>
@@ -299,7 +300,7 @@ volatile uint32_t *toAmiIopAckqData = ( volatile uint32_t* )( HAL_RPU_SHARED_MEM
 #define EDGE_SENSITIVE_INTR 0x3  // triggers on posedge of interrupt signal
 #define ACTIVE_ONE_INTR     0x1  // default value, triggers when signal is at 1
 
-extern XScuGic xInterruptController;
+extern uintptr_t IntrControllerAddr;    // GIC base address, exported by the FreeRTOS port
 
 // HPU global variables
 extern uint8_t cur_iid;
@@ -760,12 +761,10 @@ static void vTaskFuncMain( void )
     } else {
        PLL_INF( AMC_NAME, "interrupt handler on isc interrupt initialised\r\n" );
     }
-    XScuGic_SetPriorityTriggerType(
-       &xInterruptController,
-       XPAR_FABRIC_RTL_INTERRUPT_1_INTR,
-       HIGH_PRIORITY_INTR,
-       EDGE_SENSITIVE_INTR
-    );
+    // the BSP keeps the GIC instance private: set the trigger through its interrupt wrapper
+    XSetPriorityTriggerType( ( XIL_TRIG_LOW_TO_HIGH_EDGE << XINTC_TRIGGER_SHIFT ) | XPAR_FABRIC_RTL_INTERRUPT_1_INTR,
+                             HIGH_PRIORITY_INTR,
+                             IntrControllerAddr );
     if( OSAL_ERRORS_NONE != iOSAL_Interrupt_Enable( XPAR_FABRIC_RTL_INTERRUPT_1_INTR) ) {
        PLL_ERR( AMC_NAME, "failed enabling isc interrupt\r\n" );
     } else {
