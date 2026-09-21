@@ -99,7 +99,7 @@ typedef struct EMMC_PRIVATE_DATA
 {
     uint32_t        ulUpperFirewall;
 
-    uint16_t        ucDeviceId;
+    uint32_t        ucDeviceId;                 /* device id, base address with SDT */
     XSdPs           xSdInstance;
     XSdPs_Config    *pxEmmcConfig;
     int             iInitialised;
@@ -156,7 +156,7 @@ static int iValidateBlockCount( uint64_t ullBlockAddress, uint32_t ulBlockCount 
 /**
  * @brief   Initializes the EMMC driver.
  */
-int iEMMC_Initialise( uint16_t ucDeviceId )
+int iEMMC_Initialise( uint32_t ucDeviceId )
 {
     int iStatus = ERROR;
 
@@ -424,7 +424,6 @@ int iEMMC_PrintInstanceDetails( void )
     if( TRUE == pxThis->iInitialised )
     {
         PLL_LOG( EMMC_NAME, "CONFIG:\n\r" );
-        PLL_LOG( EMMC_NAME, "DeviceId:              0x%x\n\r", pxThis->pxEmmcConfig->DeviceId );
         PLL_LOG( EMMC_NAME, "BaseAddress:           0x%x\n\r", pxThis->pxEmmcConfig->BaseAddress );
         PLL_LOG( EMMC_NAME, "InputClockHz:          0x%x\n\r", pxThis->pxEmmcConfig->InputClockHz );
         PLL_LOG( EMMC_NAME, "CardDetect:            0x%x\n\r", pxThis->pxEmmcConfig->CardDetect );

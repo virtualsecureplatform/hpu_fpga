@@ -81,7 +81,7 @@ typedef enum FW_IF_OSPI_STATE
  */
 typedef struct FW_IF_OSPI_INIT_CFG
 {
-    uint8_t     ucOspiDeviceId;
+    uint32_t    ucOspiDeviceId;         /* device id, base address with SDT */
     uint16_t    usPageSize;
 
 } FW_IF_OSPI_INIT_CFG;

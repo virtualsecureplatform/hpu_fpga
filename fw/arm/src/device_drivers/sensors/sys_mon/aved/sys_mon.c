@@ -250,10 +250,10 @@ int iSYS_MON_ReadVoltage( SYS_MON_VOLTAGES_ENUM xVoltageType, float *pfVoltageIn
                 iMappedVType = VCCAUX;
                 break;
             case SYS_MON_VOLTAGES_VCCAUXSMON:
-                iMappedVType = VCCAUXSMON;
+                iMappedVType = VCCAUX_SMON;
                 break;
             case SYS_MON_VOLTAGES_VCCAUXPMC:
-                iMappedVType = VCCAUXPMC;
+                iMappedVType = VCCAUX_PMC;
                 break;
             default:
                 iMappedVType = SYS_MON_DEFAULT_V_TYPE;

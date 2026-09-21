@@ -78,7 +78,7 @@ typedef enum FW_IF_EMMC_STATE
 typedef struct FW_IF_EMMC_INIT_CFG
 {
     char            *pcDriverName;
-    uint16_t        usDeviceId;             /* The EMMC device ID */
+    uint32_t        usDeviceId;             /* The EMMC device ID (SDT BSP: base address) */
 
 } FW_IF_EMMC_INIT_CFG;
 
