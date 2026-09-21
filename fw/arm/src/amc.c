@@ -951,13 +951,13 @@ static void vTaskFuncMain( void )
                     if (get_lookup(header, mapping, ucore_cfg.node_id, &dop_entry)) {
                         PLL_ERR("IOpQ", "Incorrect IOp processed [head 0x%x, last-tail 0x%x, current-tail 0x%x]", iopq_head, iopq_tail, (iopq_tail - iop_complete_len));
                         PLL_ERR("IOpQ", "chunk_idx %x chunk_size %d iop_complete_len %d", chunk_idx, chunk_size, iop_complete_len);
-                        iOSAL_Task_SleepTicks(2000);
+                        iOSAL_Task_SleepMs(200);
                         for (int i =0; i < 7; i++) {
                             PLL_ERR("IOpQ", "@%d -> 0x%x", i, Xil_EndianSwap32(iop_buffer[i]));
-                            iOSAL_Task_SleepTicks(2000);
+                            iOSAL_Task_SleepMs(200);
                         }
                         stop_consuming_iop = true;
-                        iOSAL_Task_SleepTicks(2000);
+                        iOSAL_Task_SleepMs(200);
                     }
 
                     PLL_DBG("UCORE", "[HPU%d] translation will patch and push %d dops @0x%x", phys_hpu_id, dop_entry.len, dop_entry.ptr);
@@ -1025,10 +1025,10 @@ static void vTaskFuncMain( void )
                 PLL_ERR("IOpQ", "Invalid IOp at %x stream ABORT dequeue (%d, %d, tail %x, head %x))", chunk_idx, chunk_size, wrap_chunk_size, iopq_tail, iopq_head);
                 for (int i =0; i < 7; i++) {
                     PLL_ERR("IOpQ", "invalid @%d -> 0x%x", i, Xil_EndianSwap32(iop_buffer[i]));
-                    iOSAL_Task_SleepTicks(2000);
+                    iOSAL_Task_SleepMs(200);
                 }
                 stop_consuming_iop = true;
-                iOSAL_Task_SleepTicks(2000);
+                iOSAL_Task_SleepMs(200);
             }
         }
         // Give hand back to scheduler for other tasks

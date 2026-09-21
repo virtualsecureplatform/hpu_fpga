@@ -448,7 +448,7 @@ void dst_store_print(uint8_t iid) {
       }
       msg[8] = '\0';
       PLL_ERR("dst_store_print", "[HPU%d] iop %d dst %d owner %d: %s", phys_hpu_id, iid, i, dst_store.owner[iid][i], msg);
-      iOSAL_Task_SleepTicks(10);
+      iOSAL_Task_SleepMs(1);
     }
   }
 }

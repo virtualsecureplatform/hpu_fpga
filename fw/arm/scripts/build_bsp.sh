@@ -28,7 +28,7 @@ os=0
 ### store FREERTOS_DEBUG param ###
 FREERTOS_DEBUG=0
 ### FreeRTOS number of ticks per second ###
-TICK_RATE_HZ=10000
+TICK_RATE_HZ=1000
 
 ### Heap size ###
 HEAP_SIZE=131072
