@@ -44,17 +44,18 @@ proc create_hier_cell_pcie_mgmt_pdi_reset { parentCell nameHier } {
   ] $pcie_mgmt_pdi_reset_gpio
 
   # Create instance: inv, and set properties
-  set inv [ create_bd_cell -type ip -vlnv xilinx.com:ip:util_vector_logic:2.0 inv ]
+  set inv [ create_bd_cell -type inline_hdl -vlnv xilinx.com:inline_hdl:ilvector_logic:1.0 inv ]
   set_property -dict [list \
     CONFIG.C_OPERATION {not} \
     CONFIG.C_SIZE {1} \
   ] $inv
 
-  # Create instance: ccat, and set properties
-  set ccat [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 ccat ]
+  # Create instance: concat, and set properties
+  set ccat [ create_bd_cell -type inline_hdl -vlnv xilinx.com:inline_hdl:ilconcat:1.0 ccat ]
+  set_property CONFIG.NUM_PORTS {2} $ccat
 
   # Create instance: and_0, and set properties
-  set and_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:util_reduced_logic:2.0 and_0 ]
+  set and_0 [ create_bd_cell -type inline_hdl -vlnv xilinx.com:inline_hdl:ilreduced_logic:1.0 and_0 ]
   set_property CONFIG.C_SIZE {2} $and_0
 
   # Create interface connections

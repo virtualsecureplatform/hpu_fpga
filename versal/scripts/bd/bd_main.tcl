@@ -381,9 +381,6 @@ proc create_root_design { parentCell ntt_psi } {
    CONFIG.ASSOCIATED_BUSIF $prop_clk(pl0_ref_clk_0) \
   ] [get_bd_ports /pl0_ref_clk_0]
 
-  # GT
-  set GT_Serial [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gt_rtl:1.0 GT_Serial ]
-
   # MHDMA clocks
   set mhdma_cfg_busif "MHDMA_AXI_CFG"
   for { set i 0} {$i < $MHDMA_AXI_NB} {incr i} {
@@ -406,8 +403,6 @@ proc create_root_design { parentCell ntt_psi } {
   set ctl_tx_port2 [ create_bd_intf_port -mode Slave -vlnv xilinx.com:display_mrmac:mrmac_ctrl_ports:2.0 ctl_tx_port2 ]
   set ctl_tx_port3 [ create_bd_intf_port -mode Slave -vlnv xilinx.com:display_mrmac:mrmac_ctrl_ports:2.0 ctl_tx_port3 ]
   set tx_preamblein [ create_bd_intf_port -mode Slave -vlnv xilinx.com:display_mrmac:mrmac_statistics_ports:2.0 tx_preamblein ]
-
-  set APB3_INTF [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:apb_rtl:1.0 APB3_INTF ]
 
   set gt_tx_reset_done_out [ create_bd_port -dir O -from 3 -to 0 gt_tx_reset_done_out ]
   set gt_rx_reset_done_out [ create_bd_port -dir O -from 3 -to 0 gt_rx_reset_done_out ]
@@ -563,13 +558,11 @@ proc create_root_design { parentCell ntt_psi } {
   connect_bd_intf_net -intf_net S_REGIF_AXI_0 [get_bd_intf_ports /S_REGIF_AXI_0] [get_bd_intf_pins noc_wrapper/S_REGIF_AXI_0]
 
   # == MRMAC
-  connect_bd_intf_net -intf_net APB3_INTF                  [get_bd_intf_ports APB3_INTF] [get_bd_intf_pins mrmac_wrapper/APB3_INTF]
   connect_bd_intf_net -intf_net CLK_IN_D                   [get_bd_intf_ports CLK_IN_D] [get_bd_intf_pins mrmac_wrapper/CLK_IN_D]
   connect_bd_intf_net -intf_net ctl_tx_port0               [get_bd_intf_ports ctl_tx_port0] [get_bd_intf_pins mrmac_wrapper/ctl_tx_port0]
   connect_bd_intf_net -intf_net ctl_tx_port1               [get_bd_intf_ports ctl_tx_port1] [get_bd_intf_pins mrmac_wrapper/ctl_tx_port1]
   connect_bd_intf_net -intf_net ctl_tx_port2               [get_bd_intf_ports ctl_tx_port2] [get_bd_intf_pins mrmac_wrapper/ctl_tx_port2]
   connect_bd_intf_net -intf_net ctl_tx_port3               [get_bd_intf_ports ctl_tx_port3] [get_bd_intf_pins mrmac_wrapper/ctl_tx_port3]
-  connect_bd_intf_net -intf_net gt_quad_base_GT_Serial     [get_bd_intf_ports GT_Serial] [get_bd_intf_pins mrmac_wrapper/GT_Serial]
   connect_bd_intf_net -intf_net tx_preamblein              [get_bd_intf_ports tx_preamblein] [get_bd_intf_pins mrmac_wrapper/tx_preamblein]
 
   connect_bd_net -net ch0_loopback                     [get_bd_ports ch0_loopback] [get_bd_pins mrmac_wrapper/ch0_loopback]
@@ -588,8 +581,8 @@ proc create_root_design { parentCell ntt_psi } {
   connect_bd_net -net ch3_rxrate                       [get_bd_ports ch3_rxrate] [get_bd_pins mrmac_wrapper/ch3_rxrate]
   connect_bd_net -net ch3_txrate                       [get_bd_ports ch3_txrate] [get_bd_pins mrmac_wrapper/ch3_txrate]
 
-  connect_bd_net -net gt_quad_base_txn                 [get_bd_ports gt_txn_out_0] [get_bd_pins mrmac_wrapper/gt_txn_out_0]
-  connect_bd_net -net gt_quad_base_txp                 [get_bd_ports gt_txp_out_0] [get_bd_pins mrmac_wrapper/gt_txp_out_0]
+  connect_bd_net -net gt_txn_out_0                     [get_bd_ports gt_txn_out_0] [get_bd_pins mrmac_wrapper/gt_txn_out_0]
+  connect_bd_net -net gt_txp_out_0                     [get_bd_ports gt_txp_out_0] [get_bd_pins mrmac_wrapper/gt_txp_out_0]
   connect_bd_net -net gt_reset_all_in                  [get_bd_ports gt_reset_all_in] [get_bd_pins mrmac_wrapper/gt_reset_all_in]
   connect_bd_net -net gt_reset_rx_datapath_in          [get_bd_ports gt_reset_rx_datapath_in] [get_bd_pins mrmac_wrapper/gt_reset_rx_datapath_in]
   connect_bd_net -net gt_reset_tx_datapath_in          [get_bd_ports gt_reset_tx_datapath_in] [get_bd_pins mrmac_wrapper/gt_reset_tx_datapath_in]
@@ -673,8 +666,8 @@ proc create_root_design { parentCell ntt_psi } {
 
   connect_bd_net [get_bd_pins noc_wrapper/mhdma_cfg_clk]   [get_bd_pins shell_wrapper/clk_mhdma_cfg_0] [get_bd_ports clk_mhdma_cfg_0] -boundary_type upper
 
-  connect_bd_net [get_bd_pins mrmac_wrapper/apb3clk_quad] [get_bd_pins shell_wrapper/clk_gt_freerun_0]
-  connect_bd_net [get_bd_pins mrmac_wrapper/apb3presetn]  [get_bd_pins shell_wrapper/resetn_gt_freerun_ic_0]
+  connect_bd_net [get_bd_pins mrmac_wrapper/gt_freerun_clk]    [get_bd_pins shell_wrapper/clk_gt_freerun_0]
+  connect_bd_net [get_bd_pins mrmac_wrapper/gt_freerun_resetn] [get_bd_pins shell_wrapper/resetn_gt_freerun_ic_0]
 
 
   # MGMT
@@ -766,9 +759,6 @@ proc create_root_design { parentCell ntt_psi } {
 
   # MRMAC
   assign_bd_address -offset 0x00000000 -range 0x00010000 -target_address_space [get_bd_addr_spaces MHDMA_AXI_CFG] [get_bd_addr_segs mrmac_wrapper/mrmac_0_core/s_axi/Reg] -force
-
-  # APB3 not meant to be used
-  assign_bd_address -offset 0xA4080000 -range 0x00010000 -target_address_space [get_bd_addr_spaces APB3_INTF] [get_bd_addr_segs mrmac_wrapper/mrmac_0_gt_wrapper/gt_quad_base/APB3_INTF/Reg] -force
 
   # PMC
   assign_bd_address -offset 0x050080000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces shell_wrapper/cips/PMC_NOC_AXI_0] [get_bd_addr_segs noc_wrapper/ddr_noc/axi_noc_mc_ddr4_0/S00_INI/C0_DDR_CH1] -force
