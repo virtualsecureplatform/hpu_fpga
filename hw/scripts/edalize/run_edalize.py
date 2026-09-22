@@ -727,7 +727,7 @@ if __name__ == '__main__':
         # -override_timescale=1ps/1ps : set same timescale on everything (not possible when using xilinx lib)
         # -noinherit_timescale=1ns/10ps : works along with `resetall in testbench file
         # -fgp (vcs_options) to get multi-thread simulation along with -fgp=num_threads:6 (run_options)
-        tool_options_d[tool]["vcs_options"]=['-licwait 10 -diag timescale -noinherit_timescale=1ns/10ps -deraceclockdata +rad -Xkeyopt=rtopt -ntb_opts sensitive_dyn']
+        tool_options_d[tool]["vcs_options"]=['-licwait 10 -diag timescale -noinherit_timescale=1ns/10ps -deraceclockdata -fullopt -ntb_opts sensitive_dyn']
         tool_options_d[tool]["run_options"]=['-licwait 10 +ntb_random_seed={:d} -ucli'.format(args.seed)]
         tool_options_d[tool]["vlogan_options"]=['-timescale=1ns/10ps']
         tool_options_d[tool]["vhdlan_options"]=[]
