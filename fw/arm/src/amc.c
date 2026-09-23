@@ -559,6 +559,7 @@ void vMhdmaWorkerTask(void *pvParameters) {
           ackq_head += 1;
           *toAmiIopAckqHead = ackq_head;
           HAL_FLUSH_CACHE_DATA( (uintptr_t)toAmiIopAckqHead, sizeof(uint32_t));
+          iop_close(ack_iid);
           // Debug print after the ack: it can wait on the print semaphore
           PLL_DBG("MhdmaWorker", "[HPU%d] iop_teardown on iid %d done", phys_hpu_id, ack_iid);
           // Flush remote source queue after the ack, off the critical path

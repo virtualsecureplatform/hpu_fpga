@@ -174,6 +174,7 @@ void interrupt_ack_handler(uint32_t ack) {
       // iop ack
       uint8_t ack_iid = dop_ack.sync.iid;
       iop_teardown(ack_iid);
+      iop_close(ack_iid);
       src_store_reset_iop(ack_iid);
       printf("[HPU%d] iid %d teardown done\n", phys_hpu_id, ack_iid);
     }

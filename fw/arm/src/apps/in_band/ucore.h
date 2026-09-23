@@ -192,6 +192,7 @@ void dst_store_init(void);
 void dst_store_initd(uint8_t iid, OperandBundle_t *iop_dst);
 void dst_store_print(uint8_t iid);
 void iop_teardown(uint8_t iid);
+void iop_close(uint8_t iid);
 uint32_t parse_iop(
      uint32_t *stream,
      uint32_t iop_pending_bytes,

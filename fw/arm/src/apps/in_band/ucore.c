@@ -479,6 +479,8 @@ void iop_teardown(uint8_t iid) {
   }
   //reset tails in remote dst queue
   dst_notifyq_reset_tails();
+  //flush remote source queue
+  // Done by the caller after the host ack (32 KB memset)
   //reset mhdma_table for this IOp (all local notify & ld_b2b & wait)
   mhdma_table_reset_iop(iid);
   //cnt remote dst to be sent
@@ -534,7 +536,12 @@ void iop_teardown(uint8_t iid) {
     }
     non_resolved_owned_dst = dst_store_get_owned(iid, phys_hpu_id);
   }
+  // All dst owned by the local HPU are now resolved.
+}
 
+// IOp closing, to be called after the host ack
+// Sends end of IOp to the other HPUs and resets the tables of this iid.
+void iop_close(uint8_t iid) {
   // notify IOp locally done to all HPU but local one
   for (int i = 0; i < MAX_HPU_IN_CLUSTER; i++) {
     if ((i != phys_hpu_id) // Not local
