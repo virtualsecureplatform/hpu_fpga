@@ -50,10 +50,8 @@ tb_mod_mult,lib,stable,hw/common_lib/mod_arithmetic/module/mod_mult/simu,-1,-1,t
 # SHARED_MODULE
 #####################################################################
 tb_ntt_radix_cooley_tukey,shared_module,ok,hw/module/number_theoretic_transform/module/ntt_radix/module/ntt_radix_cooley_tukey/simu,-1,-1,true
-tb_decomp_modsw_wrapper,shared_module,ok,hw/module/decomposer/module/decomp_modsw_wrapper/simu,-1,-1,true
 tb_decomp_balanced_sequential,shared_module,wip,hw/module/decomposer/module/decomp_balanced_sequential/simu,-1,-1,true
 tb_decomp_parallel,shared_module,ok,hw/module/decomposer/module/decomp_parallel/simu,-1,-1,true
-tb_decomp_sequential,shared_module,ok,hw/module/decomposer/module/decomp_sequential/simu,-1,-1,true
 tb_twiddle_phi_ru_manager,shared_module,ok,hw/module/twiddle/simu/tb_twiddle_phi_ru_manager,-1,-1,true
 tb_twiddle_intt_final_manager,shared_module,ok,hw/module/twiddle/simu/tb_twiddle_intt_final_manager,-1,-1,true
 tb_bsk_manager,shared_module,wip,hw/module/bsk/module/bsk_manager/simu,-1,-1,true
