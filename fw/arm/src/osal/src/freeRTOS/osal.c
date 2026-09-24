@@ -19,6 +19,7 @@
 
 /* Xil includes */
 #include "xil_printf.h"
+#include "sleep.h"
 
 /* FreeRTOS includes */
 #include "FreeRTOS.h"
@@ -805,6 +806,20 @@ int iOSAL_Task_SleepTicks( uint32_t ulSleepTicks )
     }
 
     return iStatus;
+}
+
+/**
+ * @brief   Wait for a given number of us without blocking.
+ */
+int iOSAL_Task_SleepUs( uint32_t ulSleepUs )
+{
+    RETURN_IF_OS_NOT_STARTED;
+
+    /* let the ready tasks of the same priority run first, as a blocking sleep would */
+    taskYIELD();
+    usleep( ulSleepUs );
+
+    return OSAL_ERRORS_NONE;
 }
 
 /**

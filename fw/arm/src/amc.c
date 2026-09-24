@@ -1031,8 +1031,7 @@ static void vTaskFuncMain( void )
                 iOSAL_Task_SleepMs(200);
             }
         }
-        // Give hand back to scheduler for other tasks
-        iOSAL_Task_SleepTicks(1);
+        iOSAL_Task_SleepUs(100);
         loop_cnt+=1;
     }
 }

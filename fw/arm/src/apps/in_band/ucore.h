@@ -28,6 +28,8 @@
 
 #define HAL_INVALIDATE_CACHE_DATA(a,b) printf("invalidate cache\n")
 #define iOSAL_Task_SleepTicks(n) while(0)
+#define iOSAL_Task_SleepMs(n) while(0)
+#define iOSAL_Task_SleepUs(n) while(0)
 #define vOSAL_EnterCritical() while(0);
 #define vOSAL_ExitCritical() while(0);
 #endif

@@ -280,6 +280,18 @@ int iOSAL_Task_SleepTicks( uint32_t ulSleepTicks );
  */
 int iOSAL_Task_SleepMs( uint32_t ulSleepMs );
 
+/**
+ * @brief   Wait for a given number of us: yields to the ready tasks of the same priority,
+ *          then busy-waits. Below one tick (1 ms) the OS cannot block a task.
+ *
+ * @param   ulSleepUs  The amount of time, in us, that the calling task should wait.
+ *
+ * @return  OSAL_ERRORS_NONE                no errors, call was successful
+ *          OSAL_ERRORS_OS_NOT_STARTED      OS has not been started
+ *
+ */
+int iOSAL_Task_SleepUs( uint32_t ulSleepUs );
+
 /*****************************************************************************/
 /* Semaphore APIs                                                            */
 /*****************************************************************************/
