@@ -45,8 +45,11 @@ module tb_pep_mono_mult_acc;
   parameter int INST_FIFO_DEPTH   = 8; // Should be >= 2
 
   // Testbench
-  localparam int SAMPLE_THROUGHPUT_NB = 200;
-  localparam int SAMPLE_RANDOM_NB     = 200;
+  parameter int SAMPLE_THROUGHPUT_NB = 200;
+  parameter int SAMPLE_RANDOM_NB     = 200;
+  // Optional exact two-product replay, padded with four zero rotations.
+  parameter string VECTOR_DIR = "";
+  parameter bit VECTOR_INJECT_ERROR = 0;
   localparam int SAMPLE_NB       = SAMPLE_THROUGHPUT_NB + SAMPLE_RANDOM_NB;
   parameter  int DATA_RAND_RANGE = 1023;
   localparam int DATA_RAND_RANGE_W = $clog2(DATA_RAND_RANGE+1);
@@ -507,13 +510,95 @@ module tb_pep_mono_mult_acc;
 
   logic                                                     ntt_in_avail;
   logic [CHUNK_NB-1:0][ACC_DECOMP_COEF_NB-1:0][MOD_Q_W-1:0] ntt_in_data;
+  logic [BPBS_ID_W-1:0] ntt_in_pbs_id;
+  logic [63:0] vector_acc0[0:2*N-1], vector_acc1[0:2*N-1];
+  logic [63:0] vector_prod0[0:2*N-1], vector_prod1[0:2*N-1];
+  logic [63:0] vector_masks[0:879];
+  integer vector_pos[0:BATCH_PBS_NB-1];
+  integer vector_sxt_pos[0:REGF_COEF_NB-1];
+  logic [PSI-1:0][R-1:0][MOD_Q_W-1:0] ntt_feedback;
+  function automatic logic[63:0] vector_modsw(input logic[63:0] v);
+    logic[127:0] wide;
+    wide=({64'b0,v}<<64)+128'h7fffffff80000000;
+    return 64'(wide/128'hffffffff00000001);
+  endfunction
+  function automatic logic[63:0] vector_final(input integer i);
+    return vector_acc1[i]+vector_modsw(vector_prod1[i]);
+  endfunction
+  initial begin
+    foreach(vector_pos[i]) vector_pos[i]=0;
+    foreach(vector_sxt_pos[i]) vector_sxt_pos[i]=0;
+    if(VECTOR_DIR!="") begin
+      if(N!=2048 || PSI!=64 || GLWE_K!=1 || LWE_K!=6 || SAMPLE_NB!=1)
+        $fatal(1,"Unsupported exact MMACC fixture parameters");
+      $readmemh({VECTOR_DIR,"/step0/acc_before.hex"},vector_acc0);
+      $readmemh({VECTOR_DIR,"/step1/acc_before.hex"},vector_acc1);
+      $readmemh({VECTOR_DIR,"/step0/expected.hex"},vector_prod0);
+      $readmemh({VECTOR_DIR,"/step1/expected.hex"},vector_prod1);
+      $readmemh({VECTOR_DIR,"/switched_lwe.hex"},vector_masks);
+      foreach(vector_acc0[i])
+        if($isunknown({vector_acc0[i],vector_acc1[i],vector_prod0[i],vector_prod1[i]}))
+          $fatal(1,"Incomplete MMACC fixture");
+    end
+  end
+  always_comb begin
+    ntt_feedback=ntt_in_data;
+    if(VECTOR_DIR!="" && ntt_in_avail) begin
+      for(int p=0;p<PSI;p++) for(int r=0;r<R;r++) begin
+        integer beat,idx,step_id;
+        beat=vector_pos[ntt_in_pbs_id]%(2*N/(PSI*R));
+        step_id=vector_pos[ntt_in_pbs_id]/(2*N/(PSI*R));
+        idx=(beat%2)*N+rev_order((beat/2)*PSI*R+p*R+r);
+        ntt_feedback[p][r]=step_id>=2 ? '0 : vector_modsw(step_id==0 ? vector_prod0[idx] : vector_prod1[idx]);
+      end
+    end
+  end
+  always @(posedge clk) if(s_rst_n && VECTOR_DIR!="") begin
+    if(ntt_in_avail) begin
+      logic [PSI-1:0][R-1:0][63:0] flat_data;
+      flat_data=ntt_in_data;
+      for(int p=0;p<PSI;p++) for(int r=0;r<R;r++) begin
+        integer beat,step_id,col,j,src;
+        logic[63:0] orig,rot,expected;
+        beat=vector_pos[ntt_in_pbs_id]%(2*N/(PSI*R));
+        step_id=vector_pos[ntt_in_pbs_id]/(2*N/(PSI*R));
+        col=beat%2; j=rev_order((beat/2)*PSI*R+p*R+r);
+        src=(j+2*N-int'(vector_masks[step_id]))%(2*N);
+        orig=step_id==0 ? vector_acc0[col*N+j] : vector_acc1[col*N+j];
+        rot=step_id==0 ? vector_acc0[col*N+src%N] : vector_acc1[col*N+src%N];
+        if(src>=N) rot=-rot;
+        expected=rot-orig;
+        if(step_id>=2) expected='0;
+        if(VECTOR_INJECT_ERROR && step_id==0 && col==1 && j==0) expected=expected^64'd1;
+        if(flat_data[p][r] !== expected)
+          $fatal(1,"MMACC feed mismatch pid=%0d step=%0d col=%0d j=%0d got=%h expected=%h",
+                 ntt_in_pbs_id,step_id,col,j,flat_data[p][r],expected);
+      end
+      vector_pos[ntt_in_pbs_id]<=vector_pos[ntt_in_pbs_id]+1;
+    end
+    for(int lane=0;lane<REGF_COEF_NB;lane++)
+      if(sxt_regf_wr_data_vld[lane] && sxt_regf_wr_data_rdy[lane]) begin
+        integer j,word_id;
+        logic[63:0] expected;
+        word_id=vector_sxt_pos[lane]%(N/REGF_COEF_NB+1);
+        j=word_id*REGF_COEF_NB+lane;
+        // The regfile interface uses bit-reversed mask coefficient order.
+        if(j<N) j=rev_order(j);
+        if(j==N) expected=vector_final(N+980);
+        else if(j<=980) expected=vector_final(980-j);
+        else expected=-vector_final(N+980-j);
+        // Body travels in lane zero; other lanes of that last word are padding.
+        if(j<=N && sxt_regf_wr_data[lane] !== expected)
+          $fatal(1,"MMACC SXT mismatch lane=%0d j=%0d got=%h expected=%h",lane,j,sxt_regf_wr_data[lane],expected);
+        vector_sxt_pos[lane]<=vector_sxt_pos[lane]+1;
+      end
+  end
   logic [CHUNK_NB-1:0]                                      ntt_in_sob;
   logic [CHUNK_NB-1:0]                                      ntt_in_sog;
   logic [CHUNK_NB-1:0]                                      ntt_in_sol;
   logic                                                     ntt_in_eob;
   logic                                                     ntt_in_eog;
   logic                                                     ntt_in_eol;
-  logic [BPBS_ID_W-1:0]                                     ntt_in_pbs_id;
 
   always_ff @(posedge clk)
     if (!s_rst_n) ntt_in_avail <= 1'b0;
@@ -575,7 +660,7 @@ module tb_pep_mono_mult_acc;
     else          ntt_acc_ctrl_avail_sr <= {ntt_acc_ctrl_avail_sr[NTT_SR_DEPTH-2:0],ntt_in_avail};
 
   always_ff @(posedge clk) begin
-    ntt_acc_data_sr       <= {ntt_acc_data_sr[NTT_SR_DEPTH-2:0],  ntt_in_data};
+    ntt_acc_data_sr       <= {ntt_acc_data_sr[NTT_SR_DEPTH-2:0],  ntt_feedback};
     ntt_acc_sob_sr        <= {ntt_acc_sob_sr[NTT_SR_DEPTH-2:0],   |ntt_in_sob};
     ntt_acc_eob_sr        <= {ntt_acc_eob_sr[NTT_SR_DEPTH-2:0],   ntt_in_eob};
     ntt_acc_sol_sr        <= {ntt_acc_sol_sr[NTT_SR_DEPTH-2:0],   |ntt_in_sol};
@@ -679,12 +764,12 @@ module tb_pep_mono_mult_acc;
   // Write in GRAM
   always_comb
     for (int g=0; g<GRAM_NB; g=g+1) begin
-      ldg_gram_main_wr_en[g]   = wr_gram_wr_en[0][g];
-      ldg_gram_main_wr_add[g]  = wr_gram_word_cnt[0] + wr_gram_add_ofs[0];
+      ldg_gram_main_wr_en[g]   = {MAIN_PSI*R{wr_gram_wr_en[0][g]}};
+      ldg_gram_main_wr_add[g]  = {MAIN_PSI*R{GLWE_RAM_ADD_W'(wr_gram_word_cnt[0] + wr_gram_add_ofs[0])}};
       ldg_gram_main_wr_data[g] = wr_gram_data[0][SUBS_PSI+:MAIN_PSI];
 
-      ldg_gram_subs_wr_en[g]   = wr_gram_wr_en[1][g];
-      ldg_gram_subs_wr_add[g]  = wr_gram_word_cnt[1] + wr_gram_add_ofs[1];
+      ldg_gram_subs_wr_en[g]   = {SUBS_PSI*R{wr_gram_wr_en[1][g]}};
+      ldg_gram_subs_wr_add[g]  = {SUBS_PSI*R{GLWE_RAM_ADD_W'(wr_gram_word_cnt[1] + wr_gram_add_ofs[1])}};
       ldg_gram_subs_wr_data[g] = wr_gram_data[1][0+:SUBS_PSI];
     end
 
@@ -741,6 +826,7 @@ module tb_pep_mono_mult_acc;
                 // Use the following instead to ease debug
                 wr_data[p][r] = rev_order((wr_gram_sample_cnt*R*PSI)%N + p*R+r);
                 wr_data[p][r] = (wr_gram_sample_cnt*R*PSI)/N * N + wr_data[p][r];
+                if(VECTOR_DIR!="") wr_data[p][r]=vector_acc0[int'(wr_data[p][r])];
                 //$display("PID=%0d [%0d] data=0x%0x",pid,wr_gram_sample_cnt*R*PSI+p*R+r,wr_data[p][r]);
               end
 
@@ -913,6 +999,10 @@ module tb_pep_mono_mult_acc;
       ks_res_lwe_a[i][3:0]            = (ks_res_rp + i);
       ks_res_lwe_a[i][LWE_COEF_W-1:4] = ks_res_loop;
       ks_res_corr_a[i]                = i;
+      if(VECTOR_DIR!="") begin
+        ks_res_lwe_a[i]=ks_res_loop<2 ? LWE_COEF_W'(vector_masks[ks_res_loop]) : '0;
+        ks_res_corr_a[i]='0;
+      end
     end
 
   assign ks_res_vld_tmp = |ks_cmd_avail_sr[KS_LATENCY +: LBX];
@@ -1005,6 +1095,7 @@ module tb_pep_mono_mult_acc;
       ks_boram_pid    <= pid;
       ks_boram_parity <= parity;
       ks_boram_data   <= pid; //$urandom(); -- cannot put random, due to boram internal check...
+      if(VECTOR_DIR!="") ks_boram_data <= (980 << (MOD_KSK_W-LWE_COEF_W)) + (1 << (MOD_KSK_W-LWE_COEF_W-1));
                               // TODO find a way to keep the value, if the CT has not been output.
     end
   end
@@ -1101,6 +1192,13 @@ module tb_pep_mono_mult_acc;
     $display("%t > INFO: All ciphertexts processed",$time);
 
     repeat(10) @(posedge clk);
+
+    if(VECTOR_DIR!="") begin
+      for(int lane=0;lane<REGF_COEF_NB;lane++)
+        if(vector_sxt_pos[lane]!=SAMPLE_NB*(N/REGF_COEF_NB+1))
+          $fatal(1,"Incomplete MMACC SXT output lane=%0d",lane);
+      $display("MMACC_VECTOR_PASS: two exact products, one ciphertext, all sample-extraction coefficients");
+    end
 
     assert(inst_ack_cnt == SAMPLE_NB)
     else begin

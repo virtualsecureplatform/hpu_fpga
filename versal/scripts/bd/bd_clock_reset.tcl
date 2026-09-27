@@ -57,17 +57,23 @@ proc create_hier_cell_pcie_mgmt_pdi_reset { parentCell nameHier } {
   set and_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:util_reduced_logic:2.0 and_0 ]
   set_property CONFIG.C_SIZE {2} $and_0
 
+  # Reset crosses through asynchronous reset pins, before software masking.
+  # This also captures assertion when the PCIe clock is absent.
+  add_files -norecurse $::env(PROJECT_DIR)/versal/rtl/hpu_pcie_reset_sync.sv
+  create_bd_cell -type module -reference hpu_pcie_reset_sync reset_sync
+
   # Create interface connections
   connect_bd_intf_net -intf_net s_axi_1 [get_bd_intf_pins s_axi] [get_bd_intf_pins pcie_mgmt_pdi_reset_gpio/S_AXI]
 
   # Create port connections
   connect_bd_net -net and_0_Res [get_bd_pins and_0/Res] [get_bd_pins pcie_mgmt_pdi_reset_gpio/gpio2_io_i]
   connect_bd_net -net ccat_dout [get_bd_pins ccat/dout] [get_bd_pins and_0/Op1]
-  connect_bd_net -net clk_1 [get_bd_pins clk] [get_bd_pins pcie_mgmt_pdi_reset_gpio/s_axi_aclk]
+  connect_bd_net -net clk_1 [get_bd_pins clk] [get_bd_pins pcie_mgmt_pdi_reset_gpio/s_axi_aclk] [get_bd_pins reset_sync/clk]
   connect_bd_net -net inv_Res [get_bd_pins inv/Res] [get_bd_pins ccat/In1]
   connect_bd_net -net pcie_mgmt_pdi_reset_gpio_gpio_io_o [get_bd_pins pcie_mgmt_pdi_reset_gpio/gpio_io_o] [get_bd_pins ccat/In0]
   connect_bd_net -net resetn_1 [get_bd_pins resetn] [get_bd_pins pcie_mgmt_pdi_reset_gpio/s_axi_aresetn]
-  connect_bd_net -net resetn_in_1 [get_bd_pins resetn_in] [get_bd_pins inv/Op1]
+  connect_bd_net -net resetn_in_1 [get_bd_pins resetn_in] [get_bd_pins reset_sync/resetn_in]
+  connect_bd_net -net resetn_synchronized [get_bd_pins reset_sync/resetn_out] [get_bd_pins inv/Op1]
 
   # Restore current instance
   current_bd_instance $oldCurInst
@@ -187,9 +193,7 @@ proc create_hier_cell_clock_reset { parentCell nameHier } {
   set usr_1_psr [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 usr_1_psr ]
   set_property CONFIG.C_EXT_RST_WIDTH {1} $usr_1_psr
 
-  # Create instance: mhdma_freerun_psr, and set properties
-  set mhdma_freerun_psr [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 mhdma_freerun_psr ]
-  set_property CONFIG.C_EXT_RST_WIDTH {1} $mhdma_freerun_psr
+  # HPU and MHDMA configuration share one clock and one reset synchronizer.
 
   # Create instance: gt_freerun_psr, and set properties
   set gt_freerun_psr [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 gt_freerun_psr ]
@@ -211,26 +215,28 @@ proc create_hier_cell_clock_reset { parentCell nameHier } {
   connect_bd_net -net dma_axi_aresetn_1 [get_bd_pins dma_axi_aresetn] [get_bd_pins pcie_mgmt_pdi_reset/resetn_in]
   connect_bd_net -net pcie_psr_interconnect_aresetn [get_bd_pins pcie_psr/interconnect_aresetn] [get_bd_pins resetn_pcie_ic]
   connect_bd_net -net pcie_psr_peripheral_aresetn [get_bd_pins pcie_psr/peripheral_aresetn] [get_bd_pins resetn_pcie_periph]
-  connect_bd_net -net pl_psr_interconnect_aresetn [get_bd_pins pl_psr/interconnect_aresetn] [get_bd_pins resetn_pl_ic] [get_bd_pins pcie_psr/ext_reset_in] [get_bd_pins usr_0_psr/ext_reset_in] [get_bd_pins usr_1_psr/ext_reset_in] [get_bd_pins mhdma_freerun_psr/ext_reset_in] [get_bd_pins gt_freerun_psr/ext_reset_in]
+  connect_bd_net -net pl_psr_interconnect_aresetn [get_bd_pins pl_psr/interconnect_aresetn] [get_bd_pins resetn_pl_ic] [get_bd_pins pcie_psr/ext_reset_in] [get_bd_pins usr_0_psr/ext_reset_in] [get_bd_pins usr_1_psr/ext_reset_in] [get_bd_pins gt_freerun_psr/ext_reset_in]
   connect_bd_net -net pl_psr_peripheral_aresetn [get_bd_pins pl_psr/peripheral_aresetn] [get_bd_pins resetn_pl_periph] [get_bd_pins pcie_mgmt_pdi_reset/resetn]
   connect_bd_net -net resetn_pl_axi_1 [get_bd_pins resetn_pl_axi] [get_bd_pins pl_psr/ext_reset_in]
   connect_bd_net -net usr_0_psr_interconnect_aresetn [get_bd_pins usr_0_psr/interconnect_aresetn] [get_bd_pins resetn_usr_0_ic]
   connect_bd_net -net usr_0_psr_peripheral_aresetn [get_bd_pins usr_0_psr/peripheral_aresetn] [get_bd_pins resetn_usr_0_periph]
-  connect_bd_net -net usr_1_psr_interconnect_aresetn [get_bd_pins usr_1_psr/interconnect_aresetn] [get_bd_pins resetn_usr_1_ic]
-  connect_bd_net -net usr_1_psr_peripheral_aresetn [get_bd_pins usr_1_psr/peripheral_aresetn] [get_bd_pins resetn_usr_1_periph]
-  connect_bd_net -net mhdma_freerun_psr_interconnect_aresetn [get_bd_pins mhdma_freerun_psr/interconnect_aresetn] [get_bd_pins resetn_mhdma_cfg_ic]
-  connect_bd_net -net mhdma_freerun_psr_peripheral_aresetn [get_bd_pins mhdma_freerun_psr/peripheral_aresetn] [get_bd_pins resetn_mhdma_freerun_periph]
+  connect_bd_net -net usr_1_psr_interconnect_aresetn [get_bd_pins usr_1_psr/interconnect_aresetn] [get_bd_pins resetn_usr_1_ic] [get_bd_pins resetn_mhdma_cfg_ic]
+  connect_bd_net -net usr_1_psr_peripheral_aresetn [get_bd_pins usr_1_psr/peripheral_aresetn] [get_bd_pins resetn_usr_1_periph] [get_bd_pins resetn_mhdma_freerun_periph]
   connect_bd_net -net gt_freerun_psr_interconnect_aresetn [get_bd_pins gt_freerun_psr/interconnect_aresetn] [get_bd_pins resetn_gt_freerun_ic]
   connect_bd_net -net gt_freerun_psr_peripheral_aresetn [get_bd_pins gt_freerun_psr/peripheral_aresetn] [get_bd_pins resetn_gt_freerun_periph]
   connect_bd_net -net usr_clk_wiz_clk_out3 [get_bd_pins usr_clk_wiz/clk_out3] [get_bd_pins clk_usr_0_fr] [get_bd_pins usr_0_psr/slowest_sync_clk]
-  connect_bd_net -net usr_clk_wiz_clk_out2 [get_bd_pins usr_clk_wiz/clk_out2] [get_bd_pins clk_usr_1]    [get_bd_pins usr_1_psr/slowest_sync_clk]
+  # HPU and MHDMA configuration exchange synchronous control signals. Use the
+  # same 100 MHz source: parallel MMCMs do not provide a fixed phase relation.
+  if {abs($USER_1_FREQ - $MHDMA_FREERUN_FREQ) > 0.001} {
+    error "HPU and MHDMA configuration clocks must have the same frequency"
+  }
+  connect_bd_net -net usr_clk_wiz_clk_out2 [get_bd_pins usr_clk_wiz/clk_out2] [get_bd_pins clk_usr_1] [get_bd_pins usr_1_psr/slowest_sync_clk] [get_bd_pins clk_mhdma_cfg]
   connect_bd_net -net usr_clk_wiz_clk_out1 [get_bd_pins usr_clk_wiz/clk_out1] [get_bd_pins clk_usr_0]
   connect_bd_net -net clk_usr_0_en_net     [get_bd_pins clk_usr_0_ce]         [get_bd_pins usr_clk_wiz/clk_out1_ce]
   connect_bd_net -net usr_clk_wiz_locked [get_bd_pins usr_clk_wiz/locked] [get_bd_pins usr_0_psr/dcm_locked] [get_bd_pins usr_1_psr/dcm_locked]
-  connect_bd_net -net mhdma_clk_wiz_clk_out1 [get_bd_pins mhdma_clk_wiz/clk_out1] [get_bd_pins clk_mhdma_cfg] [get_bd_pins mhdma_freerun_psr/slowest_sync_clk]
   connect_bd_net -net mhdma_clk_wiz_clk_out2 [get_bd_pins mhdma_clk_wiz/clk_out2] [get_bd_pins clk_mhdma]
   connect_bd_net -net mhdma_clk_wiz_clk_out3 [get_bd_pins mhdma_clk_wiz/clk_out3] [get_bd_pins clk_gt_freerun] [get_bd_pins gt_freerun_psr/slowest_sync_clk]
-  connect_bd_net -net mhdma_clk_wiz_locked   [get_bd_pins mhdma_clk_wiz/locked] [get_bd_pins mhdma_freerun_psr/dcm_locked] [get_bd_pins gt_freerun_psr/dcm_locked]
+  connect_bd_net -net mhdma_clk_wiz_locked   [get_bd_pins mhdma_clk_wiz/locked] [get_bd_pins gt_freerun_psr/dcm_locked]
 
   ####################################
   # Restore instance

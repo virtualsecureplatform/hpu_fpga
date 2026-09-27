@@ -293,7 +293,9 @@ volatile uint32_t *toAmiIopAckqData = ( volatile uint32_t* )( HAL_RPU_SHARED_MEM
 #define EDGE_SENSITIVE_INTR 0x3  // triggers on posedge of interrupt signal
 #define ACTIVE_ONE_INTR     0x1  // default value, triggers when signal is at 1
 
+#ifndef SDT
 extern XScuGic xInterruptController;
+#endif
 
 // HPU global variables
 extern uint8_t cur_iid;
@@ -730,12 +732,16 @@ static void vTaskFuncMain( void )
     } else {
        PLL_INF( AMC_NAME, "interrupt handler on isc interrupt initialised\r\n" );
     }
+#ifdef SDT
+    XSetPriorityTriggerType(XPAR_FABRIC_RTL_INTERRUPT_1_INTR, HIGH_PRIORITY_INTR, XPAR_XSCUGIC_0_BASEADDR);
+#else
     XScuGic_SetPriorityTriggerType(
        &xInterruptController,
        XPAR_FABRIC_RTL_INTERRUPT_1_INTR,
        HIGH_PRIORITY_INTR,
        EDGE_SENSITIVE_INTR
     );
+#endif
     if( OSAL_ERRORS_NONE != iOSAL_Interrupt_Enable( XPAR_FABRIC_RTL_INTERRUPT_1_INTR) ) {
        PLL_ERR( AMC_NAME, "failed enabling isc interrupt\r\n" );
     } else {

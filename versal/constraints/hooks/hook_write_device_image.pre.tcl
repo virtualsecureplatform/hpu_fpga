@@ -42,27 +42,32 @@
      return {}
    }
 
+   # A worker resumed from a DCP may not retain the project's IP_REPO_PATHS.
+   # PROJECT_DIR is exported by setup.sh for both full and resumed builds.
+   proc find_uuid_update_script {} {
+      set repo_paths [get_property IP_REPO_PATHS [current_project]]
+      if {[info exists ::env(PROJECT_DIR)]} {
+         lappend repo_paths [file join $::env(PROJECT_DIR) versal iprepo]
+      }
+      foreach repo_path [lsort -unique $repo_paths] {
+         if {![file isdirectory $repo_path]} { continue }
+         set uuid_dir [find_dir $repo_path shell_utils_uuid_rom_v2_0]
+         if {$uuid_dir eq {}} { continue }
+         set candidate [file join $uuid_dir tcl update_uuid_rom.tcl]
+         if {[file isfile $candidate] && [file readable $candidate]} {
+            return [file normalize $candidate]
+         }
+      }
+      error "update_uuid_rom.tcl not found in IP repositories: $repo_paths"
+   }
+
    # (from amd) procedure:  update the Logic UUID ROM
    # Input is 64 hex character string (256-bit UUID)
    proc update_logic_uuid_rom {uuid} {
 
-      # Get the absolute directory path of the shel_utils_uuid_rom_v2_0 Tcl directory
-      set scr_fname {}
-
-      foreach ip_repo_path [get_property IP_REPO_PATHS [current_project]] {
-        set scr_fname [find_dir $ip_repo_path shell_utils_uuid_rom_v2_0]
-        if {$scr_fname != {}} {
-          break
-        }
-      }
-      set update_uuid_rom [file join $scr_fname tcl update_uuid_rom.tcl]
-
-      # Source the update UUID ROM script, return an error if not found
-      if {[file exists $update_uuid_rom]} {
-         source $update_uuid_rom
-      } else {
-         return -code error "ERROR: update_uuid_rom.tcl script not found, Logic UUID not populated."
-      }
+      set update_uuid_rom [find_uuid_update_script]
+      puts "INFO: UUID update script: $update_uuid_rom"
+      source $update_uuid_rom
 
       # Search for the BLP_LOGIC_UUID_ROM cell path in the netlist, return an error if not found
       set uuid_cell [get_cells -hier -filter {NAME =~ "*uuid_rom" && PARENT =~ "*base_logic"}]
@@ -117,11 +122,13 @@
       set work_directory [file dirname [file dirname $run_directory]]
       set top_name [get_property TOP [current_design]]
       set top_vds_path "$work_directory/prj.runs/synth_1/$top_name.vds"
+      if {[info exists ::env(HPU_SYNTHESIS_VDS)]} {
+         set top_vds_path $::env(HPU_SYNTHESIS_VDS)
+      }
 
       # Check if file exists
       if {![file exists $top_vds_path]} {
-         puts "ERROR: VDS file has not been generated, $top_vds_path does not exist"
-         return "F"
+         error "Missing synthesis metadata: $top_vds_path"
       }
 
       set fileHandle [open $top_vds_path r]
@@ -142,8 +149,7 @@
       close $fileHandle
 
       if {$decimalValue eq ""} {
-         puts "ERROR: Parameter $parameter not found"
-         return "F"
+         error "Parameter $parameter not found in $top_vds_path"
       } else {
          return $decimalValue
       }
@@ -171,7 +177,9 @@
       set work_directory [file dirname [file dirname $run_directory]]
 
       # sourcing uservars to have effective ntt_psi
-      source $work_directory/uservars.tcl
+      set uservars $work_directory/uservars.tcl
+      if {[info exists ::env(HPU_USERVARS)]} { set uservars $::env(HPU_USERVARS) }
+      source $uservars
 
       # timestamp must have as format: YYMMDDHHMM (10 digit)
       set current_time [clock seconds]
@@ -180,7 +188,12 @@
       set user_value [find_user]
       set host_value [find_host]
 
-      set git_hash [exec git rev-parse --short=7 HEAD]
+      if {[info exists ::env(HPU_SOURCE_REVISION)]} {
+         set git_hash [string range $::env(HPU_SOURCE_REVISION) 0 6]
+      } else {
+         set git_hash [exec git rev-parse --short=7 HEAD]
+      }
+      if {![regexp {^[0-9a-f]{7}$} $git_hash]} { error "Invalid source revision" }
 
       # we want to have the parameters mapped during synthesis, this can be done reading .vds file
       # over there we can find NTT_ARCH and HPU version major and minor
@@ -196,7 +209,7 @@
       # clock frequency can be found directly within vivado
       # we want to find the clock frequency of prc_clk in the top RTL file
       set clock_period [get_property PERIOD [get_clocks prc_clk]]
-      set hpu_freq  [ format "%04d" [expr {int([expr 1000.0 / $clock_period])}] ]
+      set hpu_freq  [ format "%04d" [expr {round([expr 1000.0 / $clock_period])}] ]
 
       # 5 digits remain for later use
       set zero_filler "00000"
@@ -212,10 +225,20 @@
       puts "INFO: user value    $user_value"
       puts "INFO: timestamp     $timestamp"
       set uuid [format %s%s%s%s%s%s%s%s%s%s $zero_filler $git_hash $hpu_freq $hpu_version_maj $hpu_version_min $ntt_arch $psi $host_value $user_value $timestamp]
-      puts "INFO: generated UUID is $timestamp"
+      if {![regexp {^[0-9a-fA-F]{32}$} $uuid]} { error "Invalid logic UUID: $uuid" }
+      puts "INFO: generated UUID is $uuid"
       return $uuid
    }
 
+   if {![info exists ::env(PROJECT_DIR)]} { error "PROJECT_DIR is required for image signoff" }
+   if {[info exists ::env(HPU_SIGNOFF_SCRIPT)]} {
+      source $::env(HPU_SIGNOFF_SCRIPT)
+   } else {
+      source [file join $::env(PROJECT_DIR) versal scripts timing_signoff.tcl]
+   }
+   set signoff_checkpoint [file join [pwd] postroute_physopt.dcp]
+   if {[info exists ::env(HPU_ROUTED_CHECKPOINT)]} { set signoff_checkpoint $::env(HPU_ROUTED_CHECKPOINT) }
+   hpu_signoff::run [file join [pwd] signoff_pre_uuid] $signoff_checkpoint
    set top_name [get_property TOP [current_design]]
 
    # Code to generate a Logic-UUID from the synthesized checkpoint
@@ -242,8 +265,10 @@
       set route_fname [file normalize "./"]
 
       # Use md5sum to calculate an Interface-UUID, or return an error if the checkpoint isn't found
-      if {[file exists ${route_fname}/${top_name}_routed.dcp]} {
-         set interface_uuid [lindex [exec md5sum ${route_fname}/${top_name}_routed.dcp] 0]
+      set routed_checkpoint ${route_fname}/${top_name}_routed.dcp
+      if {[info exists ::env(HPU_ROUTED_CHECKPOINT)]} { set routed_checkpoint $::env(HPU_ROUTED_CHECKPOINT) }
+      if {[file exists $routed_checkpoint]} {
+         set interface_uuid [lindex [exec md5sum $routed_checkpoint] 0]
          puts "Interface-UUID is $interface_uuid"
          dict set uuid_dict interface_uuid ${interface_uuid}
       } else {
@@ -253,10 +278,20 @@
 
    # Now write the full dictionary, consisting of key-value pairs of the top cell and its Logic-UUID, and the reconfigurable module
    # and its Interface-UUID, to a file with predetermined name required for the write_hw_platform flow.
-   set uuid_file [open [file join [get_property DIRECTORY [current_project]] "pfm_uuid_manifest.dict"] w]
+   set metadata_dir [get_property DIRECTORY [current_project]]
+   if {[info exists ::env(HPU_IMAGE_METADATA_DIR)]} { set metadata_dir $::env(HPU_IMAGE_METADATA_DIR) }
+   set uuid_file [open [file join $metadata_dir "pfm_uuid_manifest.dict"] w]
    puts $uuid_file $uuid_dict
    close $uuid_file
 
 # Enable automatic loading of bitstream USR_ACCESS 32-bit register with timestamp
 # TODO why is this set here and not in build_hw.tcl?
 set_property BITSTREAM.CONFIG.USR_ACCESS TIMESTAMP [current_design]
+
+# UUID updates change LUT contents. Sign off the exact design sent to Bootgen.
+write_checkpoint -force [file join [pwd] image_input.dcp]
+hpu_signoff::run [file join [pwd] signoff_image_input] [file join [pwd] image_input.dcp]
+set checkpoint_hash [lindex [exec sha256sum [file join [pwd] image_input.dcp]] 0]
+set hash_file [open [file join [pwd] signoff_image_input checkpoint.sha256] w]
+puts $hash_file "$checkpoint_hash  image_input.dcp"
+close $hash_file

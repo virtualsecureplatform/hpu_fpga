@@ -380,7 +380,7 @@ proc create_hier_cell_mrmac_wrapper  { parentCell nameHier } {
   # No FEC
   # Must use GTM
   # Placement near bank 111
-  set mrmac_0_core [ create_bd_cell -type ip -vlnv xilinx.com:ip:mrmac:3.1 mrmac_0_core ]
+  set mrmac_0_core [ create_bd_cell -type ip -vlnv xilinx.com:ip:mrmac:3.2 mrmac_0_core ]
   set_property -dict [list \
     CONFIG.FAST_SIM_MODE {0} \
     CONFIG.FEC_SLICE0_CFG_C0 {FEC Disabled (Bypass)} \
@@ -403,6 +403,7 @@ proc create_hier_cell_mrmac_wrapper  { parentCell nameHier } {
     CONFIG.MAC_PORT3_RATE_C0 {25GE} \
     CONFIG.MRMAC_CLIENTS_C0 {4} \
     CONFIG.MRMAC_CONFIGURATION_TYPE {Static Configuration} \
+    CONFIG.MRMAC_IS_GT_WIZ_OLD {1} \
     CONFIG.MRMAC_LOCATION_C0 {MRMAC_X0Y3} \
     CONFIG.MRMAC_MODE_C0 {MAC+PCS} \
     CONFIG.MRMAC_PRESET_C0 {4x25GE Narrow} \

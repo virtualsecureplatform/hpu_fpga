@@ -138,9 +138,9 @@ To use the HPU FPGA project, ensure the following tools and dependencies are ins
 
 - **bash** : All the commands are run in a bash terminal. If not it would be specified.
 - [**tfhe-rs**](https://github.com/zama-ai/tfhe-rs/) >= 1.2.0.
-- **Host linux driver**: [AVED fork](https://github.com/zama-ai/AVED).
-- **DMA linux driver**: [QDMA fork](https://github.com/zama-ai/dma_ip_drivers).
-- [**Vivado/Vitis**](https://www.xilinx.com/support/download/index.html/content/xilinx/en/downloadNav/vivado-design-tools/2025-1.html) = **2025.1**.
+- **Host linux driver**: AMR 3.0 requires the new AMR-compatible FPGA address map and AMC firmware; see [AMR migration](docs/amr_image_migration.md). The previously built HPU image is still AVED-derived and must not be used with stock AMR.
+- **DMA linux driver**: upstream QDMA 2025.2 (included as an HTTPS submodule) or the legacy Zama fork.
+- **Vivado/Vitis 2026.1**.
 - [**just**](https://github.com/casey/just) >= 1.37.0.
 - *(simulation only)* [**Sage**](https://sagemanifolds.obspm.fr/install_ubuntu.html) = 10.4.
 - *(firmware compilation)* [**CMake**](https://cmake.org/download/) >= 3.3.0.
@@ -187,7 +187,7 @@ To prepare your environment, set the bash variables **XILINX_PATH** with your xi
 
 Clone the HPU repository:
 ```
-git clone git@github.com:zama-ai/hpu_fpga
+git clone https://github.com/zama-ai/hpu_fpga
 
 ```
 
@@ -224,11 +224,26 @@ cd ${PROJECT_DIR}/versal
 > * run_syn_hpu_3parts_psi16.sh
 >     * HPU in which blind rotation processes 32 polynomial coefficients per cycle.
 >     * Fastest to compile.
-> * sometimes Vivado 2025.1 will report routing failures like "Router failed to deposit pin-assignments on site...". In these case you need to wait for top_hpu_routed_error.dcp to be generated and run the script you can find in versal/script/reroute.tcl which unroutes this slice and reroutes the whole design (Ex: vivado -mode batch -source scripts/reroute.tcl -tclargs SLICE_X286Y585 output_psi64).
+> * if Vivado reports routing failures like "Router failed to deposit pin-assignments on site...", wait for top_hpu_routed_error.dcp and run `versal/scripts/reroute.tcl`.
 
 The documentation about [HPU parameters](./docs/hpu_parameters.md) and [parsing flags](./docs/parsing_flags.md) can help you understand the content of these 3 scripts and change some of these parameters to adapt the HPU to your needs.
 
 A tested bitstream of the HPU compiled using run_syn_hpu_3parts_psi64.sh is available in tfhe-rs repo.
+
+For a 350 MHz timing-closure build, after sourcing `setup.sh`, run from `versal`:
+
+```bash
+HPU_FREQ_MHZ=350 HPU_BUILD_OUTDIR="$PROJECT_DIR/versal/output_psi64_350mhz" bash run_syn_hpu_3parts_psi64.sh
+```
+
+`HPU_FREQ_MHZ` configures the actual processing and matching free-running clock
+wizard outputs (supported values: 350 and 400; default: 400). The implementation
+checks the generated processing clock frequency before placement. PCIe, HBM and
+Ethernet clock settings remain independent. The existing NoC bandwidth reservations
+are retained conservatively from the 400 MHz configuration; inspect NoC validation
+and final timing, hold, bus-skew and DRC reports before programming a new image.
+Use a fresh output directory for a different frequency; the older checkpoints and
+images retain their original clock configuration.
 
 <a id="simulation"></a>
 ### Simulation
@@ -470,6 +485,36 @@ In theory, it should also work fine with a 25GbE switch using 25G SFP cables and
 ### FPGA loading
 
 These FPGA loading procedures are described here for FPGA developers wanting to work independently of TFHE-rs but you need to know that FPGA loading is automated in TFHE-rs HPU backend.
+
+#### AMR host setup
+
+> AMR image migration is in progress. A timing-passing PDI alone does not establish
+> AMR compatibility. Deploy only a new release that passes `verify_amr_release.py`;
+> the September 15 image is not compatible. See [migration status](docs/amr_image_migration.md).
+
+The `amr` branch uses the stock AMR 3.0 driver on management PF 0 and the
+upstream 2025.2 QDMA driver on user PF 1. Initialize the HTTPS submodules and
+run the root-only setup once for the current kernel:
+
+```
+git submodule sync --recursive
+git submodule update --init --recursive
+sudo ./scripts/install_build_dependencies_ubuntu.sh
+bash ./scripts/setup_amr_host.sh
+```
+
+Run host setup as your normal user; it stages files on local disk before
+requesting sudo so it also works with NFS checkouts that restrict root access.
+Re-run the setup after a kernel upgrade. Build and merge the firmware into the
+PDI as below, then program only recovery-safe partition 1:
+
+```
+sudo ./scripts/program_amr_hpu.sh versal/output_psi64/top_hpu.pdi
+```
+
+The TFHE backend does not flash in AMR mode. Build it with `hpu-v80-amr`; its
+default V80 configuration validates the already-running image and communicates
+through the stock AMR BAR ioctls and QDMA queues.
 
 #### Loading through OSPI flash
 

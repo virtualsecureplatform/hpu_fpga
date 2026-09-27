@@ -665,7 +665,7 @@ int iOSAL_Timer_Reset( void* pvTimerHandle, uint32_t ulDurationMs );
  *          OSAL_ERRORS_OS_IMPLEMENTATION   error code returned from os implementation
  *
  */
-int iOSAL_Interrupt_Setup( uint8_t ucInterruptID,
+int iOSAL_Interrupt_Setup( uint16_t ucInterruptID,
                            void    ( *pvInterruptHandler )( void* pvCallBackRef ),
                            void*   pvCallBackRef );
 
@@ -679,7 +679,7 @@ int iOSAL_Interrupt_Setup( uint8_t ucInterruptID,
  *          OSAL_ERRORS_OS_IMPLEMENTATION   error code returned from os implementation
  *
  */
-int iOSAL_Interrupt_Enable( uint8_t ucInterruptID );
+int iOSAL_Interrupt_Enable( uint16_t ucInterruptID );
 
 /**
  * @brief   Disable OSAL interrupts
@@ -691,7 +691,7 @@ int iOSAL_Interrupt_Enable( uint8_t ucInterruptID );
  *          OSAL_ERRORS_OS_IMPLEMENTATION   error code returned from os implementation
  *
  */
-int iOSAL_Interrupt_Disable( uint8_t ucInterruptID );
+int iOSAL_Interrupt_Disable( uint16_t ucInterruptID );
 
 /*****************************************************************************/
 /* Thread safe APIs                                                          */

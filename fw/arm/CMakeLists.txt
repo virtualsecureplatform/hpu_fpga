@@ -79,15 +79,21 @@ else()
     execute_process(COMMAND ./scripts/getVersion.sh amc WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     execute_process(COMMAND ./getVersion.sh gcq WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/device_drivers/gcq_driver )
 
+    set(BSP_ROOT "${CMAKE_SOURCE_DIR}/amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0" CACHE PATH "Generated BSP directory")
+    option(BSP_SDT "Use the Vitis System Device Tree BSP" OFF)
+    if(BSP_SDT)
+        add_compile_definitions(SDT)
+    endif()
+
     #adding static libraries
-    find_library(FREERTOS_LIB NAMES freertos PATHS amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
-    find_library(XIL_LIB NAMES xil PATHS amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
-    find_library(XIL_FPGA NAMES xilfpga PATHS amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
-    find_library(XIL_MAILBOX NAMES xilmailbox PATHS amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
+    find_library(FREERTOS_LIB NAMES freertos PATHS "${BSP_ROOT}/lib" NO_DEFAULT_PATH)
+    find_library(XIL_LIB NAMES xil PATHS "${BSP_ROOT}/lib" NO_DEFAULT_PATH)
+    find_library(XIL_FPGA NAMES xilfpga PATHS "${BSP_ROOT}/lib" NO_DEFAULT_PATH)
+    find_library(XIL_MAILBOX NAMES xilmailbox PATHS "${BSP_ROOT}/lib" NO_DEFAULT_PATH)
 
     #Include directories
-    include_directories(amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/include)
-    include_directories(amc_bsp/psv_cortexr5_0/freertos10_xilinx_domain/bsp/psv_cortexr5_0/lib)
+    include_directories("${BSP_ROOT}/include")
+    include_directories("${BSP_ROOT}/lib")
     include_directories(src/common/include)
     include_directories(src/common/core_libs/pll)
     include_directories(src/common/core_libs/evl)
@@ -170,7 +176,22 @@ else()
 
     #linking libraries with executable
     if(OS MATCHES "^(FreeRTOS)$")
-        target_link_libraries(amc.elf "-Wl,-T -Wl,../src/lscript.ld" -Wl,--start-group,${XIL_LIB},${FREERTOS_LIB},-lgcc,-lc,--end-group -Wl,--start-group,${XIL_FPGA},${XIL_LIB},-lgcc,-lc,--end-group -Wl,--start-group,${XIL_MAILBOX},${XIL_LIB},-lgcc,-lc,--end-group)
+        if(BSP_SDT)
+            set(BSP_SPECS "" CACHE FILEPATH "Vitis ARM Xilinx.spec")
+            if(NOT EXISTS "${BSP_SPECS}")
+                message(FATAL_ERROR "BSP_SDT requires BSP_SPECS from the matching Vitis SDK")
+            endif()
+            find_library(XIL_STANDALONE NAMES xilstandalone PATHS "${BSP_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
+            find_library(XIL_TIMER NAMES xiltimer PATHS "${BSP_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
+            find_library(XIL_SECURE NAMES xilsecure PATHS "${BSP_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
+            target_link_libraries(amc.elf "-specs=${BSP_SPECS}" -Wl,--undefined=_boot
+                "-Wl,-T,${CMAKE_SOURCE_DIR}/src/lscript.ld"
+                -Wl,--start-group ${XIL_LIB} ${FREERTOS_LIB} ${XIL_FPGA}
+                ${XIL_MAILBOX} ${XIL_STANDALONE} ${XIL_TIMER} ${XIL_SECURE}
+                gcc c -Wl,--end-group)
+        else()
+        target_link_libraries(amc.elf "-Wl,-T -Wl,${CMAKE_SOURCE_DIR}/src/lscript.ld" -Wl,--start-group,${XIL_LIB},${FREERTOS_LIB},-lgcc,-lc,--end-group -Wl,--start-group,${XIL_FPGA},${XIL_LIB},-lgcc,-lc,--end-group -Wl,--start-group,${XIL_MAILBOX},${XIL_LIB},-lgcc,-lc,--end-group)
+        endif()
         target_compile_definitions(amc.elf PRIVATE $<$<CONFIG:Debug>:DEBUG_PRINT> GCQ_MAX_INSTANCES=1)
     endif()
 

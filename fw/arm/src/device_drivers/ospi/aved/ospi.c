@@ -499,7 +499,11 @@ int iOSPI_FlashInit( OSPI_CFG_TYPE *pxOspiCfg )
         /* Initialize the OSPIPSV driver so that it's ready to use */
         if( OK == iStatus )
         {
+#ifdef SDT
+            pxOspiPsvConfig = (pxOspiCfg->ucDeviceId == 0) ? XOspiPsv_LookupConfig( XPAR_XOSPIPSV_0_BASEADDR ) : NULL;
+#else
             pxOspiPsvConfig = XOspiPsv_LookupConfig( pxOspiCfg->ucDeviceId );
+#endif
             if( NULL == pxOspiPsvConfig )
             {
                 PLL_ERR( OSPI_NAME, "Error: XOspiPsv_LookupConfig failed\r\n" );

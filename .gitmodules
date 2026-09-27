@@ -1,6 +1,9 @@
 [submodule "sw/regmap"]
 	path = sw/regmap
-	url = git@github.com:zama-ai/hw_regmap.git
+	url = https://github.com/zama-ai/hw_regmap.git
 [submodule "edalize"]
 	path = edalize
-	url = git@github.com:zama-ai/edalize.git
+	url = https://github.com/zama-ai/edalize.git
+[submodule "third_party/dma_ip_drivers"]
+	path = third_party/dma_ip_drivers
+	url = https://github.com/Xilinx/dma_ip_drivers.git

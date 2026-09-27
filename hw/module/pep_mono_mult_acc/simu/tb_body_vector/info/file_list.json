@@ -1,0 +1,13 @@
+{
+  "local_root_path": "${PROJECT_DIR}",
+  "dep_root_path": "${PROJECT_DIR}",
+  "rtl_files": [{"name": "hw/module/pep_mono_mult_acc/simu/tb_body_vector/rtl/tb_body_vector.sv", "library": "work", "env": ["simu"], "target": ["all"], "is_include_file": false}],
+  "dependency_dir": [
+    "hw/common_lib/common_package",
+    "hw/module/number_theoretic_transform/module/ntt_core_gf64/simu/tb_ntt_pbs_vector/gen",
+    "hw/module/param",
+    "hw/module/pe_pbs/module/pep_common",
+    "hw/module/pep_mono_mult_acc/module/pep_mmacc_misc"
+  ],
+  "include_dir": []
+}

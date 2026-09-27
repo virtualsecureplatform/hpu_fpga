@@ -1906,7 +1906,7 @@ int iOSAL_Timer_Reset( void* pvTimerHandle, uint32_t ulDurationMs )
 /**
  * @brief   Sets up interrupt handler callback with appropriate interrupt ID
  */
-int iOSAL_Interrupt_Setup( uint8_t ucInterruptID,
+int iOSAL_Interrupt_Setup( uint16_t ucInterruptID,
                            void    ( *pvInterruptHandler )( void* pvCallBackRef ),
                            void*   pvCallBackRef )
 {
@@ -1934,7 +1934,7 @@ int iOSAL_Interrupt_Setup( uint8_t ucInterruptID,
 /**
  * @brief   Enable OSAL interrupts
  */
-int iOSAL_Interrupt_Enable( uint8_t ucInterruptID )
+int iOSAL_Interrupt_Enable( uint16_t ucInterruptID )
 {
     int iStatus = OSAL_ERRORS_PARAMS;
 
@@ -1949,7 +1949,7 @@ int iOSAL_Interrupt_Enable( uint8_t ucInterruptID )
 /**
  * @brief   Disable OSAL interrupts
  */
-int iOSAL_Interrupt_Disable( uint8_t ucInterruptID )
+int iOSAL_Interrupt_Disable( uint16_t ucInterruptID )
 {
     int iStatus = OSAL_ERRORS_PARAMS;
 

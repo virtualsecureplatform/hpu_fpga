@@ -132,6 +132,9 @@ module mhdma_bridge
   // CDC from regf to mrmac clock
   // =========================================================================================== //
   // these signals are quasi static: they should move rarely
+  // Keep both synchronization stages as flip-flops. Without these attributes,
+  // synthesis can combine them into SRLs, which are not CDC synchronizers.
+  (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
   logic [CDC_SYNC_STAGES-1:0][NB_MAX_HPU-1:0][REG_DATA_W-1:0] hpu_ids_cdc;
   logic                      [NB_MAX_HPU-1:0][REG_DATA_W-1:0] hpu_ids; // just for naming
 

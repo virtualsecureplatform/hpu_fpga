@@ -32,6 +32,10 @@ set VIVADO_PRJ_DIR  $PROJECT_DIR/versal/output
 # this value must be between [1:32], therefore on main server we need an hardcoded value
 # set MAX_THREADS [expr {[exec nproc] / 2}]
 set MAX_THREADS 10
+if {[info exists ::env(HPU_MAX_THREADS)]} {
+  set MAX_THREADS $::env(HPU_MAX_THREADS)
+  if {![string is integer -strict $MAX_THREADS] || $MAX_THREADS < 1 || $MAX_THREADS > 32} { error "Invalid HPU_MAX_THREADS" }
+}
 
 # Initial project setup ---------------------------------------------------------------------------
 # Create the project if only we are in standalone shell project:

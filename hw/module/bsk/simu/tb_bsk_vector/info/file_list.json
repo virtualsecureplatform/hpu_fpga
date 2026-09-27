@@ -1,0 +1,8 @@
+{
+  "local_root_path": "${PROJECT_DIR}", "dep_root_path": "${PROJECT_DIR}",
+  "rtl_files": [{"name": "hw/module/bsk/simu/tb_bsk_vector/rtl/tb_bsk_vector.sv", "library": "work", "env": ["simu"], "target": ["all"], "is_include_file": false}],
+  "dependency_dir": [
+    "hw/module/number_theoretic_transform/module/ntt_core_gf64/simu/tb_ntt_pbs_vector/gen",
+    "hw/module/bsk/module/bsk_if", "hw/module/bsk/module/bsk_manager"
+  ], "include_dir": []
+}

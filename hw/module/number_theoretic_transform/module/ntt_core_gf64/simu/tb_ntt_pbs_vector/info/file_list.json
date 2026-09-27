@@ -1,0 +1,18 @@
+{
+  "local_root_path": "${PROJECT_DIR}",
+  "dep_root_path": "${PROJECT_DIR}",
+  "rtl_files": [{
+    "name": "hw/module/number_theoretic_transform/module/ntt_core_gf64/simu/tb_ntt_pbs_vector/rtl/ntt_split_vector.sv",
+    "library": "work", "env": ["simu"], "target": ["all"], "is_include_file": false
+  }, {
+    "name": "hw/module/number_theoretic_transform/module/ntt_core_gf64/simu/tb_ntt_pbs_vector/rtl/tb_ntt_pbs_vector.sv",
+    "library": "work", "env": ["simu"], "target": ["all"], "is_include_file": false
+  }],
+  "dependency_dir": [
+    "hw/common_lib/common",
+    "hw/common_lib/mod_arithmetic/module/mod_switch/module/mod_switch_to_2powerN",
+    "hw/module/number_theoretic_transform/module/ntt_core_gf64/simu/tb_ntt_pbs_vector/gen",
+    "hw/module/number_theoretic_transform/module/ntt_core_gf64"
+  ],
+  "include_dir": []
+}

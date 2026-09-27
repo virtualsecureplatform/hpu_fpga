@@ -12,12 +12,14 @@
 # Clock domains:
 #    - clk_mhdma_cfg : configuration (AXI4-Lite, regfile)
 #    - clk_mhdma     : axi stream clock from MRMAC if (same as QSFP, HBM AXI4)
-# both are synchronous, from the same MMCM
+# Treat these domains as independent; the V80 shell uses separate MMCMs.
 #
 # ==============================================================================================
 
 # Quasi static signals
-set_false_path -to [get_cells -hierarchical -filter {NAME =~ *mhdma_bridge/*hpu_ids_cdc_reg*}]
+# Only the first synchronization stage is asynchronous. Keep paths between
+# stages timed so that the synchronizer has adequate settling time.
+set_false_path -to [get_cells -hierarchical -regexp {.*mhdma_bridge/.*hpu_ids_cdc_reg\[0\].*}]
 
 set_false_path -through [get_nets -hierarchical -regexp -filter { NAME =~ ".*multi_hpu_dma/gt_line_rate.*"}]
 set_false_path -through [get_nets -hierarchical -regexp -filter { NAME =~ ".*multi_hpu_dma/gt_loopback.*"}]

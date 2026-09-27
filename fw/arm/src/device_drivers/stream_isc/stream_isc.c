@@ -13,6 +13,7 @@
 #include "xparameters.h"
 
 #include "profile_hal.h"
+#define ISC_RETRY 2
 
 /* Writing to ISC ---------------------------------------------------------------------------------
  *
@@ -46,7 +47,7 @@ int write_isc(uint32_t *pucData, uint32_t writeSize) {
     PLL_LOG("AMC:write_isc", "tdfv %d", tdfv_val);
     if (tdfv_val < nb_words) {
         PLL_WRN("AMC:write_isc", "cannot write %d words, only %d available in axis fifo", nb_words, tdfv_val);
-        iStatus = RETRY;
+        iStatus = ISC_RETRY;
         return iStatus;
     }
 
@@ -72,7 +73,7 @@ void flush_dop_buffer_to_isc(uint32_t *dop_buffer, int number_of_dop) {
     //PLL_DBG("UCORE", "trying to flush %d dop to isc", number_of_dop);
     //PLL_ERR("UCORE", "dop_buffer %08x %08x %08x ... %08x %08x %08x",dop_buffer[0], dop_buffer[1], dop_buffer[2], dop_buffer[number_of_dop-2], dop_buffer[number_of_dop-1], dop_buffer[number_of_dop]);
     write_isc_rv = write_isc(dop_buffer, (uint32_t) (number_of_dop * sizeof(uint32_t)));
-    while (write_isc_rv == RETRY) {
+    while (write_isc_rv == ISC_RETRY) {
         //PLL_DBG("UCORE", "retry flush %d value to isc", number_of_dop);
         iOSAL_Task_SleepTicks(20);
         write_isc_rv = write_isc(dop_buffer, (uint32_t) (number_of_dop * sizeof(uint32_t)));

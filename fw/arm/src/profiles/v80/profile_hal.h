@@ -13,6 +13,9 @@
 
 #include "eeprom.h"
 #include "xparameters.h"
+#ifdef SDT
+#include "profile_sdt.h"
+#endif
 #include "xil_io.h"
 #include "xil_cache.h"
 #include "xsdps.h"

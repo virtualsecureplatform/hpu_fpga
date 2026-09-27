@@ -166,6 +166,17 @@ module hpu_with_entry_1in3
 // ============================================================================================== --
   // Regif -----------------------------------------------------------------------------------------
   logic [axi_if_trc_axi_pkg::AXI4_ADD_W-1:0] trc_mem_addr;
+  logic use_bpip_cfg, use_bpip_opportunism_cfg;
+  logic [TIMEOUT_CNT_W-1:0] bpip_timeout_cfg;
+  // Configuration is written before submitting work and held stable during
+  // execution. Preserve both destination-domain synchronizer stages.
+  (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
+  logic [1:0][TIMEOUT_CNT_W+1:0] bpip_config_cdc;
+  always_ff @(posedge prc_clk) begin
+    bpip_config_cdc[0] <= {use_bpip_cfg, use_bpip_opportunism_cfg, bpip_timeout_cfg};
+    bpip_config_cdc[1] <= bpip_config_cdc[0];
+  end
+  assign {use_bpip, use_bpip_opportunism, bpip_timeout} = bpip_config_cdc[1];
 
   // Isc -----------------------------------------------------------------------------------------
   logic               isc_trace_wr_en;
@@ -209,9 +220,9 @@ module hpu_with_entry_1in3
     .ct_mem_addr               (ct_mem_addr),
     .glwe_mem_addr             (glwe_mem_addr),
     .ksk_mem_addr              (ksk_mem_addr),
-    .use_bpip                  (use_bpip),
-    .use_bpip_opportunism      (use_bpip_opportunism),
-    .bpip_timeout              (bpip_timeout),
+    .use_bpip                  (use_bpip_cfg),
+    .use_bpip_opportunism      (use_bpip_opportunism_cfg),
+    .bpip_timeout              (bpip_timeout_cfg),
     .trc_mem_addr              (trc_mem_addr)
   );
 

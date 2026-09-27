@@ -8,7 +8,8 @@ export XILINX_PART=xcv80-lsva4737-2MHP-e-S
 export SHELL_VER=hpu_plug
 
 # Tool version
-export XILINX_TOOL_VERSION=2025.1
+export XILINX_TOOL_VERSION=2026.1
+export XILINXD_LICENSE_FILE=${XILINXD_LICENSE_FILE:-2100@eddystone.sato.lab}
 export SNPS_TOOL_VERSION=V-2023.12-SP2
 
 echo "#################################################"

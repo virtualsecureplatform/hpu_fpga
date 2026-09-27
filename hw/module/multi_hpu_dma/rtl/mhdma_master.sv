@@ -420,11 +420,15 @@ module mhdma_master
   logic [REG_DATA_W-1:0] to_dur_read_req;
   logic [REG_DATA_W-1:0] to_dur_notify;
 
-  always_ff @(posedge clk_mhdma)
-    to_dur_read_req <= regf_timeout_duration_read_req;
-
-  always_ff @(posedge clk_mhdma)
-    to_dur_notify <= regf_timeout_duration_notify;
+  // These buses remain stable during requests. Two flip-flops per bit keep
+  // configuration-domain metastability away from the timeout counters.
+  (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
+  logic [1:0][2*REG_DATA_W-1:0] timeout_duration_cdc;
+  always_ff @(posedge clk_mhdma) begin
+    timeout_duration_cdc[0] <= {regf_timeout_duration_notify, regf_timeout_duration_read_req};
+    timeout_duration_cdc[1] <= timeout_duration_cdc[0];
+  end
+  assign {to_dur_notify, to_dur_read_req} = timeout_duration_cdc[1];
 
   // timeout --------------------------------------------------------------------------------------
   logic [REG_DATA_W-1:0] to_notify_cnt;

@@ -170,7 +170,16 @@ module multi_hpu_dma
   mhdma_error_all_t      mhdma_error_all;
 
   // Transceivers ---------------------------------------------------------------------------------
-  assign line_sel             = r_system_lane[1:0];
+  // Configuration is held stable while traffic is active. Synchronize its
+  // selection bits before they drive the RX/TX muxes in the Ethernet domain.
+  (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
+  logic [CDC_SYNC_STAGES-1:0][$clog2(QSFP_LANE_NB)-1:0] line_sel_cdc;
+  always_ff @(posedge clk_mhdma) begin
+    line_sel_cdc[0] <= r_system_lane[$clog2(QSFP_LANE_NB)-1:0];
+    for (int stage = 1; stage < CDC_SYNC_STAGES; stage++)
+      line_sel_cdc[stage] <= line_sel_cdc[stage-1];
+  end
+  assign line_sel             = line_sel_cdc[CDC_SYNC_STAGES-1];
   assign gt_loopback          = r_system_lane[4:2];
   assign gt_line_rate         = r_system_lane[13:5];
 

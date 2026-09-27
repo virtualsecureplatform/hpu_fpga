@@ -1,0 +1,13 @@
+{
+  "tool_version": "2026.1",
+  "vendor_cpm": {
+    "classification": "vendor_case_disabled_cpm5_gt_controls",
+    "constraints_sha256": "a031d3578c709948ad0efd5e1342edd7052caec7094f80d1edc9e93958ba8368",
+    "basis": "Native AMR routed-checkpoint export of 2026-09-24 retains scoped ip_cpm5.xdc RXUSRCLK case analysis and the exact 64 CPM5 hard-IP driver mappings. Compared with the 2026-09-15 audited export, only generated waiver timestamps and four HPU placement LOC lines changed. The digest excludes generated waiver timestamps and placement-only LOCs on hpu_3parts cells, while retaining all CPM commands, later overrides, and their order. The 2026-09-25 reroute added twelve HPU replica LOC lines and no other executable constraint changes. PCIe lanes are not claimed inactive."
+  },
+  "cips": {
+    "vlnv": "xilinx.com:ip:versal_cips:3.4",
+    "revision": "10",
+    "parameters_sha256": "cbc67f220111636874129f13a22c6761a2ab8c6920ce2aa794863de7796fedf0"
+  }
+}

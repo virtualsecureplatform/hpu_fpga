@@ -23,7 +23,7 @@ if [ -z ${XILINX_PATH+x} ] ; then
 fi
 
 # Edalize setup
-edalize_path="$(realpath edalize)"
+edalize_path="$(realpath "${PROJECT_DIR}/edalize")"
 export PYTHONPATH=$PYTHONPATH:$edalize_path
 
 SETUP_CONFIG="${PROJECT_DIR}/setup_config/setup_${CONFIG}.sh"

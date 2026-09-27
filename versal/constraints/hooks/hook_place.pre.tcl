@@ -20,7 +20,11 @@
 ############################################################
 set cdir [pwd]
 puts "current directory: $cdir"
-source ${cdir}/../../uservars.tcl
+if {[info exists ::env(HPU_USERVARS)]} {
+    source $::env(HPU_USERVARS)
+} else {
+    source ${cdir}/../../uservars.tcl
+}
 puts "current PSI is: $::ntt_psi"
 
 # Connect the DMA reset detection signal to the PMC Interrupt input to allow a full PDI reload to be triggered on PCIe hot reset
@@ -40,8 +44,12 @@ if {[llength ${PS9_IRQ_pin}] == 1} {
     puts "Unable to get PMCPLIRQ pin for Force Reset rewiring."
 }
 
-# Enable GCLK Deskew
-set_property GCLK_DESKEW CALIBRATED [get_nets hpu_plug_wrapper/hpu_plug_i/shell_wrapper/clock_reset/usr_clk_wiz/inst/clock_primitive_inst/clk_out1]
+# Configure the complete calibrated-deskew root/window/track tuple.
+source $::env(PROJECT_DIR)/versal/scripts/clock_signoff.tcl
+hpu_clock::configure
+hpu_clock::preflight clock_preflight
+source $::env(PROJECT_DIR)/versal/scripts/pcie_reset_constraints.tcl
+hpu_reset::constrain
 
 ### pblocks
 

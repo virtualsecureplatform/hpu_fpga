@@ -271,12 +271,19 @@ int iI2C_ReInit( uint8_t ucDeviceId )
         /*
          * Initial clk value set and used to test if Fscl input is out of range
          */
+#ifdef SDT
+        /* Use the matching XSA's input clock and SDT device metadata. */
+        XIicPs_Config *pxBspCfg = XIicPs_LookupConfig( pxThis->pxI2cCfg[ ucDeviceId ].ullBaseAddress );
+        if( NULL == pxBspCfg ) { return ERROR; }
+        XIicPs_Config xEngineCfg = *pxBspCfg;
+#else
         XIicPs_Config xEngineCfg =
         {
             .DeviceId     = pxThis->pxI2cCfg[ ucDeviceId ].ucDeviceId,
             .BaseAddress  = pxThis->pxI2cCfg[ ucDeviceId ].ullBaseAddress,
             .InputClockHz = HAL_I2C_DEFAULT_SCLK_RATE
         };
+#endif
 
         pxIicInstance->IsReady = TRUE;
         iI2cStatus             = XIicPs_CfgInitialize( pxIicInstance,
@@ -376,12 +383,19 @@ int iI2C_Init( I2C_CFG_TYPE *pxI2cCfg, uint16_t usBusIdleWaitMs )
             /*
              * Initial clk value set and used to test if Fscl input is out of range
              */
+#ifdef SDT
+            /* Use the matching XSA's input clock and SDT device metadata. */
+            XIicPs_Config *pxBspCfg = XIicPs_LookupConfig( pxI2cCfg[ i ].ullBaseAddress );
+            if( NULL == pxBspCfg ) { return ERROR; }
+            XIicPs_Config xEngineCfg = *pxBspCfg;
+#else
             XIicPs_Config xEngineCfg =
             {
                 .DeviceId     = pxI2cCfg[ i ].ucDeviceId,
                 .BaseAddress  = pxI2cCfg[ i ].ullBaseAddress,
                 .InputClockHz = HAL_I2C_DEFAULT_SCLK_RATE
             };
+#endif
 
             pxIicInstance->IsReady = TRUE;
             iI2cStatus             = XIicPs_CfgInitialize( pxIicInstance,
