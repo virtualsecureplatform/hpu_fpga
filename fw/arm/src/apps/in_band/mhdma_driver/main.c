@@ -30,6 +30,8 @@ extern dst_store_t dst_store;
 extern src_store_t src_store;
 extern uint8_t node_mask;
 uint64_t intr_readc_cnt = 0;
+uint64_t debug_intr_global_cnt = 0;
+uint32_t mbox_msg_lost_cnt = 0;
 
 int output_pipe = 0;
 int start_iop = 0;
@@ -447,7 +449,6 @@ int main(int argc, char *argv[]) {
   cur_dop.sync.iid = cur_iid;
   cur_dop.sync.is_inner = 0;
   cur_dop.sync.flag = 0;
-  cur_dop.sync._pad = 0;
   printf("dop %08x: opcode %d\n", cur_dop.raw, cur_dop.raw_field.opcode);
   // return from ISC
   interrupt_ack_handler(cur_dop.raw);
