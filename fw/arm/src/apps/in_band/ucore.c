@@ -36,7 +36,7 @@ volatile mhdma_element_t mhdma_tx_table[IOP_ID_MAX_COUNT][MAX_HPU_IN_CLUSTER][FL
 volatile mhdma_element_t mhdma_rx_table[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 extern uint64_t intr_readc_cnt;
-extern uint32_t debug_intr_global_cnt;
+extern uint64_t debug_intr_global_cnt;
 
 #ifndef UCORE_MHDMA_SIMU
 // DDR debug trace
