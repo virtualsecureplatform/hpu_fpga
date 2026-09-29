@@ -198,6 +198,8 @@ void iop_close(uint8_t iid);
 uint32_t parse_iop(
      uint32_t *stream,
      uint32_t iop_pending_bytes,
+     // Node id for map filtering
+     uint8_t hid,
      // Static allocated buffer used during IOp parsing
      IOpHeader_t *header,
      IOpMapping_t *mapping,

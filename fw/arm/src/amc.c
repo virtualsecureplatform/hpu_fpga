@@ -936,7 +936,7 @@ static void vTaskFuncMain( void )
             // Parse IOp and store in lookup for ack
             // uint32_t iop_complete_len = 0x10;
             PLL_INF("ParseIOp", "@slot[%d] header 0x%x [len_bytes %d]", chunk_idx, iop_buffer[0], read_bytes);
-            uint32_t iop_complete_len = parse_iop(iop_buffer, read_bytes, &header, &mapping, &operand_prop, &operand_addr, &imm_header, &dst_bundle, &src_bundle, &imm_bundle);
+            uint32_t iop_complete_len = parse_iop(iop_buffer, read_bytes, phys_hpu_id, &header, &mapping, &operand_prop, &operand_addr, &imm_header, &dst_bundle, &src_bundle, &imm_bundle);
             PLL_INF("ParseIOp", "IOp [0x%x] [map %x] [dst %d] [src %d] [imm %d] [stream_len %d]", header.header.opcode, mapping.raw, dst_bundle.len, src_bundle.len, imm_bundle.len, iop_complete_len);
 
             if (iop_complete_len != 0) {

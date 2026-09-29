@@ -401,7 +401,7 @@ int main(int argc, char *argv[]) {
     sleep(2);
   }
 
-  uint32_t iop_complete_len = parse_iop(iop, 4*count_iop, &header, &mapping, &operand_prop, &operand_addr, &imm_header, &dst_bundle, &src_bundle, &imm_bundle);
+  uint32_t iop_complete_len = parse_iop(iop, count_iop*sizeof(uint32_t), phys_hpu_id, &header, &mapping, &operand_prop, &operand_addr, &imm_header, &dst_bundle, &src_bundle, &imm_bundle);
 
   cur_iid = header.header.iid;
   printf("IOp id %d [0x%x] [dst %d] [src %d] [imm %d] [stream_len %d]\n", cur_iid, header.header.opcode, dst_bundle.len, src_bundle.len, imm_bundle.len, iop_complete_len);

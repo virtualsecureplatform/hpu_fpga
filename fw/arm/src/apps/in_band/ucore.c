@@ -622,8 +622,11 @@ void iop_close(uint8_t iid) {
 // returns the number of bytes used by parsed IOp
 // Currently there is no way to report error back to host -> No check are implemented during parsing
 uint32_t parse_iop(
+     // Stream input
      uint32_t *stream,
      uint32_t iop_pending_bytes,
+     // Node id for map filtering
+     uint8_t hid,
      // Static allocated buffer used during IOp parsing
      IOpHeader_t *header,
      IOpMapping_t *mapping,
@@ -658,45 +661,9 @@ uint32_t parse_iop(
     PLL_ERR("parse_iop", "not enough bytes after mapping");
     return 0;
   }
-
-  //3. Get list of destination operands
-  uint32_t dst_pos = 0;
-  do {
-    operand_prop->raw = stream[stream_pos];
-    stream_pos++;
-    operand_addr->raw = stream[stream_pos];
-    stream_pos++;
-
-    if ((stream_pos*sizeof(uint32_t)) > iop_pending_bytes) {
-      for (int i =0; i < 7; i++) {
-          PLL_ERR("parse_iop", "Fail parse_iop dsts @%d -> 0x%x", i, Xil_EndianSwap32(stream[i]));
-      }
-      PLL_ERR("parse_iop", "not enough bytes to reach last destination");
-      return 0;
-    }
-
-    if (dst_pos >= OPERAND_BUNDLE_MAX_SLOT) {
-      PLL_ERR("parse_iop", "too many destinations (max %d)", OPERAND_BUNDLE_MAX_SLOT);
-      return 0;
-    }
-
-    // Fill current slot
-    dst->operand[dst_pos].cid_ofst = operand_addr->operand_addr.base_cid;
-    dst->operand[dst_pos].iid = operand_prop->operand_prop.iid;
-    dst->operand[dst_pos].pos = operand_prop->operand_prop.pos;
-    dst->operand[dst_pos].len = operand_prop->operand_prop.vec_size +1;
-    dst->operand[dst_pos].block = operand_prop->operand_prop.block +1;
-    dst_pos +=1;
-  } while (!operand_prop->operand_prop.is_last);
-
-  if (dst_pos > MAX_DST_VARS) {
-    PLL_ERR("parse_iop", "too many destinations for the tracking store (%d > max %d)",
-            dst_pos, MAX_DST_VARS);
-    return 0;
-  }
-
-
   cur_mapping.raw = mapping->raw;
+
+  // Update IOp state
   uint8_t nb_hpu = number_of_hpu(*mapping);
   vOSAL_EnterCritical();
   iop_state[cur_iid].nb_hpu = nb_hpu;
@@ -722,120 +689,164 @@ uint32_t parse_iop(
       iop_state[cur_iid].state,
       iop_state[cur_iid].nb_hpu);
 
-  // Fill bundle length
-  vOSAL_EnterCritical();
-  dst->len = dst_pos;
-  dst_store_initd(cur_iid, dst);
-  vOSAL_ExitCritical();
-  uint32_t dst_cnts = dst_store_get_owned_cnt(cur_iid, phys_hpu_id);
-  if (debug_intr_global_cnt%2 == 1) {
-    print_ddr_debug((uint32_t)(cur_iid << 24) | dst_cnts);
-  }
-  uint8_t dst_cnt_owned = (dst_cnts >> 16) & 0xFF;
-  uint8_t dst_cnt_waiting = (dst_cnts >> 8) & 0xFF;
-  uint8_t dst_cnt_resolved = (dst_cnts) & 0xFF;
-  PLL_DBG("parse_iop", "[HPU%d] parse_iop iop %d dst ct owned %d/%d/%d",
-          phys_hpu_id,
-          cur_iid,
-          dst_cnt_owned,
-          dst_cnt_waiting,
-          dst_cnt_resolved);
-  //dst_store_print(cur_iid);
-
-  //4. Get list of source operands
-  uint32_t src_pos = 0;
-  do {
-    operand_prop->raw = stream[stream_pos];
-    stream_pos++;
-    operand_addr->raw = stream[stream_pos];
-    stream_pos++;
-    if ((stream_pos*sizeof(uint32_t)) > iop_pending_bytes) {
-      for (int i =0; i < 7; i++) {
-          PLL_ERR("parse_iop", "Fail parse_iop srcs @%d -> 0x%x", i, Xil_EndianSwap32(stream[i]));
-      }
-      PLL_ERR("parse_iop", "not enough bytes to reach last source");
-      return 0;
-    }
-
-    if (src_pos >= OPERAND_BUNDLE_MAX_SLOT) {
-      PLL_ERR("parse_iop", "too many sources (max %d)", OPERAND_BUNDLE_MAX_SLOT);
-      return 0;
-    }
-
-    // Fill current slot
-    src->operand[src_pos].cid_ofst = operand_addr->operand_addr.base_cid;
-    src->operand[src_pos].iid = operand_prop->operand_prop.iid;
-    src->operand[src_pos].pos = operand_prop->operand_prop.pos;
-    src->operand[src_pos].len = operand_prop->operand_prop.vec_size +1;
-    src->operand[src_pos].block = operand_prop->operand_prop.block +1;
-    PLL_INF("ucore", "[HPU%d] parse_iop src %d.%d pos %d",
-        phys_hpu_id,
-        src_pos,
-        src->operand[src_pos].block,
-        src->operand[src_pos].pos);
-    src_pos +=1;
-  } while (!operand_prop->operand_prop.is_last);
-
-  if (src_pos > MAX_DST_VARS) {
-    PLL_ERR("parse_iop", "too many sources for the tracking store (%d > max %d)",
-            src_pos, MAX_DST_VARS);
-    return 0;
-  }
-
-  // Fill bundle length
-  src->len = src_pos;
-  src_store_inits(cur_iid, src);
-
-  //5. Get list of immediat operands (if needed)
-  if (header->header.has_imm) {
-    uint32_t imm_pos = 0;
+  if (get_used_of(hid, *mapping)) {
+    //3. Get list of destination operands
+    uint32_t dst_pos = 0;
     do {
-      // Read Imm header
-      imm_header->raw =stream[stream_pos];
+      operand_prop->raw = stream[stream_pos];
+      stream_pos++;
+      operand_addr->raw = stream[stream_pos];
       stream_pos++;
 
       if ((stream_pos*sizeof(uint32_t)) > iop_pending_bytes) {
         for (int i =0; i < 7; i++) {
-            PLL_ERR("parse_iop", "Fail parse_iop imms @%d -> 0x%x", i, Xil_EndianSwap32(stream[i]));
+            PLL_ERR("parse_iop", "Fail parse_iop dsts @%d -> 0x%x", i, Xil_EndianSwap32(stream[i]));
         }
-        PLL_ERR("parse_iop", "not enough bytes to reach last immediate");
+        PLL_ERR("parse_iop", "not enough bytes to reach last destination");
         return 0;
       }
 
-      if (imm_pos >= IMMEDIAT_BUNDLE_MAX_SLOT) {
-        PLL_ERR("parse_iop", "too many immediates (max %d)", IMMEDIAT_BUNDLE_MAX_SLOT);
+      if (dst_pos >= OPERAND_BUNDLE_MAX_SLOT) {
+        PLL_ERR("parse_iop", "too many destinations (max %d)", OPERAND_BUNDLE_MAX_SLOT);
         return 0;
       }
 
-      // Extract lsb from header
-      imm->cst[imm_pos].msg[0] = imm_header->header.lsb_msg;
+      // Fill current slot
+      dst->operand[dst_pos].cid_ofst = operand_addr->operand_addr.base_cid;
+      dst->operand[dst_pos].iid = operand_prop->operand_prop.iid;
+      dst->operand[dst_pos].pos = operand_prop->operand_prop.pos;
+      dst->operand[dst_pos].len = operand_prop->operand_prop.vec_size +1;
+      dst->operand[dst_pos].block = operand_prop->operand_prop.block +1;
+      dst_pos +=1;
+    } while (!operand_prop->operand_prop.is_last);
 
-      uint32_t msg_pos = 1;
-      while ( imm_header->header.block > ((8*sizeof(uint16_t))/MSG_WIDTH)*msg_pos) {
-        if (msg_pos >= IMMEDIAT_MSG_MAX_SLOT) {
-          PLL_ERR("parse_iop", "immediate too wide (max %d msg words)", IMMEDIAT_MSG_MAX_SLOT);
-          return 0;
+    if (dst_pos > MAX_DST_VARS) {
+      PLL_ERR("parse_iop", "too many destinations for the tracking store (%d > max %d)",
+              dst_pos, MAX_DST_VARS);
+      return 0;
+    }
+    // Fill bundle length
+    vOSAL_EnterCritical();
+    dst->len = dst_pos;
+    dst_store_initd(cur_iid, dst);
+    vOSAL_ExitCritical();
+
+    uint32_t dst_cnts = dst_store_get_owned_cnt(cur_iid, phys_hpu_id);
+    if (debug_intr_global_cnt%2 == 1) {
+      print_ddr_debug((uint32_t)(cur_iid << 24) | dst_cnts);
+    }
+    uint8_t dst_cnt_owned = (dst_cnts >> 16) & 0xFF;
+    uint8_t dst_cnt_waiting = (dst_cnts >> 8) & 0xFF;
+    uint8_t dst_cnt_resolved = (dst_cnts) & 0xFF;
+    PLL_DBG("parse_iop", "[HPU%d] parse_iop iop %d dst ct owned %d/%d/%d",
+            phys_hpu_id,
+            cur_iid,
+            dst_cnt_owned,
+            dst_cnt_waiting,
+            dst_cnt_resolved);
+    //dst_store_print(cur_iid);
+
+    //4. Get list of source operands
+    uint32_t src_pos = 0;
+    do {
+      operand_prop->raw = stream[stream_pos];
+      stream_pos++;
+      operand_addr->raw = stream[stream_pos];
+      stream_pos++;
+      if ((stream_pos*sizeof(uint32_t)) > iop_pending_bytes) {
+        for (int i =0; i < 7; i++) {
+            PLL_ERR("parse_iop", "Fail parse_iop srcs @%d -> 0x%x", i, Xil_EndianSwap32(stream[i]));
         }
-        uint32_t bfr;
-        bfr =stream[stream_pos];
+        PLL_ERR("parse_iop", "not enough bytes to reach last source");
+        return 0;
+      }
+
+      if (src_pos >= OPERAND_BUNDLE_MAX_SLOT) {
+        PLL_ERR("parse_iop", "too many sources (max %d)", OPERAND_BUNDLE_MAX_SLOT);
+        return 0;
+      }
+
+      // Fill current slot
+      src->operand[src_pos].cid_ofst = operand_addr->operand_addr.base_cid;
+      src->operand[src_pos].iid = operand_prop->operand_prop.iid;
+      src->operand[src_pos].pos = operand_prop->operand_prop.pos;
+      src->operand[src_pos].len = operand_prop->operand_prop.vec_size +1;
+      src->operand[src_pos].block = operand_prop->operand_prop.block +1;
+      PLL_INF("ucore", "[HPU%d] parse_iop src %d.%d pos %d",
+          phys_hpu_id,
+          src_pos,
+          src->operand[src_pos].block,
+          src->operand[src_pos].pos);
+      src_pos +=1;
+    } while (!operand_prop->operand_prop.is_last);
+
+    if (src_pos > MAX_DST_VARS) {
+      PLL_ERR("parse_iop", "too many sources for the tracking store (%d > max %d)",
+              src_pos, MAX_DST_VARS);
+      return 0;
+    }
+
+    // Fill bundle length
+    src->len = src_pos;
+    src_store_inits(cur_iid, src);
+
+    //5. Get list of immediat operands (if needed)
+    if (header->header.has_imm) {
+      uint32_t imm_pos = 0;
+      do {
+        // Read Imm header
+        imm_header->raw =stream[stream_pos];
         stream_pos++;
 
-        // Fill current slot from 0 to IMMEDIAT_MSG_MAX_SLOT-1
-        imm->cst[imm_pos].msg[msg_pos] = bfr & 0xffff;
-        msg_pos += 1;
-        if (msg_pos < IMMEDIAT_MSG_MAX_SLOT) {
-          imm->cst[imm_pos].msg[msg_pos] = (bfr>> 16) & 0xffff;
-          msg_pos += 1;
+        if ((stream_pos*sizeof(uint32_t)) > iop_pending_bytes) {
+          for (int i =0; i < 7; i++) {
+              PLL_ERR("parse_iop", "Fail parse_iop imms @%d -> 0x%x", i, Xil_EndianSwap32(stream[i]));
+          }
+          PLL_ERR("parse_iop", "not enough bytes to reach last immediate");
+          return 0;
         }
-      };
-      // Fill immediat length
-      imm->cst[imm_pos].len = msg_pos;
 
-      imm_pos += 1;
-    } while (!imm_header->header.is_last);
-    // Fill immediat bundle length
-    imm->len = imm_pos;
-  } else {
+        if (imm_pos >= IMMEDIAT_BUNDLE_MAX_SLOT) {
+          PLL_ERR("parse_iop", "too many immediates (max %d)", IMMEDIAT_BUNDLE_MAX_SLOT);
+          return 0;
+        }
+
+        // Extract lsb from header
+        imm->cst[imm_pos].msg[0] = imm_header->header.lsb_msg;
+
+        uint32_t msg_pos = 1;
+        while ( imm_header->header.block > ((8*sizeof(uint16_t))/MSG_WIDTH)*msg_pos) {
+          if (msg_pos >= IMMEDIAT_MSG_MAX_SLOT) {
+            PLL_ERR("parse_iop", "immediate too wide (max %d msg words)", IMMEDIAT_MSG_MAX_SLOT);
+            return 0;
+          }
+          uint32_t bfr;
+          bfr =stream[stream_pos];
+          stream_pos++;
+
+          // Fill current slot from 0 to IMMEDIAT_MSG_MAX_SLOT-1
+          imm->cst[imm_pos].msg[msg_pos] = bfr & 0xffff;
+          msg_pos += 1;
+          if (msg_pos < IMMEDIAT_MSG_MAX_SLOT) {
+            imm->cst[imm_pos].msg[msg_pos] = (bfr>> 16) & 0xffff;
+            msg_pos += 1;
+          }
+        };
+        // Fill immediat length
+        imm->cst[imm_pos].len = msg_pos;
+
+        imm_pos += 1;
+      } while (!imm_header->header.is_last);
+      // Fill immediat bundle length
+      imm->len = imm_pos;
+    } else {
+      imm->len = 0;
+    }
+
+  }  else {
+    // Node isn't targeted by the IOp => no variable parsed
+    dst->len = 0;
+    src->len = 0;
     imm->len = 0;
   }
   return (stream_pos*sizeof(uint32_t));
