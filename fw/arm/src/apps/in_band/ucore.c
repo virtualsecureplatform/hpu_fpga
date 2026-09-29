@@ -307,17 +307,16 @@ void src_store_inits(uint8_t iid, OperandBundle_t *iop_src) {
     PLL_ERR("ucore", "src bundle overflows the tracking store (%d > max %d)", iop_src->len, MAX_DST_VARS);
     return;
   }
-  for (int i = 0; i < MAX_DST_VARS; i++) {
-    uint8_t blk_start = 0;
-    if (i < iop_src->len) { // used src
-      src_store.cid_offset[iid][i] = iop_src->operand[i].cid_ofst;
-      src_store.owner[iid][i] = iop_src->operand[i].pos;
-      src_store.src_iid[iid][i] = iop_src->operand[i].iid;
-      blk_start = iop_src->operand[i].block;
-      for (int k = 0; k < blk_start; k++) {
-        src_store.state[iid][i][k] = OPERAND_STATE_NONE;
-      }
+  for (int i = 0; i < iop_src->len; i++) {
+    uint8_t last_blk = 0;
+    src_store.cid_offset[iid][i] = iop_src->operand[i].cid_ofst;
+    src_store.owner[iid][i] = iop_src->operand[i].pos;
+    src_store.src_iid[iid][i] = iop_src->operand[i].iid;
+    last_blk = iop_src->operand[i].block;
+    for (int k = 0; k < last_blk; k++) {
+      src_store.state[iid][i][k] = OPERAND_STATE_NONE;
     }
+
   }
 }
 
@@ -378,37 +377,40 @@ void dst_store_initd(uint8_t iid, OperandBundle_t *iop_dst) {
     PLL_ERR("ucore", "dst bundle overflows the tracking store (%d > max %d)", iop_dst->len, MAX_DST_VARS);
     return;
   }
-  for (int i = 0; i < MAX_DST_VARS; i++) {
-    if (i < iop_dst->len) { // used dst
-      dst_store.owner[iid][i] = iop_dst->operand[i].pos;
-      if (dst_store.owner[iid][i] == phys_hpu_id) {
-        // for safety be sure there is not NONE between 0..block
-        for (int k = 0; k < iop_dst->operand[i].block; k++) {
-            if (dst_store.state[iid][i][k] == DST_STATE_NONE) {
-                dst_store.state[iid][i][k] = DST_STATE_WAIT_NOTIFY;
-            }
-        }
-        // set all block..max to NONE
-        for (int j = iop_dst->operand[i].block; j < MAX_VAR_BLKS; j++) {
-          dst_store.state[iid][i][j] = DST_STATE_NONE;
-        }
-      } else {
-        // if destination is not for local HPU reset all blocks
-        // (dst_store[iid][i] will be unused)
-        // this is also because dst_store_reset_iop is only called when
-        // local HPU is involved in current iid
-        for (int j = 0; j < MAX_VAR_BLKS; j++) {
-          dst_store.state[iid][i][j] = DST_STATE_WAIT_NOTIFY;
-        }
+  uint8_t max_blk = 0;
+  for (int i = 0; i < iop_dst->len; i++) {
+    max_blk = (max_blk < iop_dst->operand[i].block)? iop_dst->operand[i].block: max_blk;
+
+    dst_store.owner[iid][i] = iop_dst->operand[i].pos;
+    if (dst_store.owner[iid][i] == phys_hpu_id) {
+      // for safety be sure there is not NONE between 0..block
+      for (int k = 0; k < iop_dst->operand[i].block; k++) {
+          if (dst_store.state[iid][i][k] == DST_STATE_NONE) {
+              dst_store.state[iid][i][k] = DST_STATE_WAIT_NOTIFY;
+          }
+      }
+      // set all block..max to NONE
+      for (int j = iop_dst->operand[i].block; j < MAX_VAR_BLKS; j++) {
+        dst_store.state[iid][i][j] = DST_STATE_NONE;
+      }
+    } else {
+      // if destination is not for local HPU reset all blocks
+      // (dst_store[iid][i] will be unused)
+      // this is also because dst_store_reset_iop is only called when
+      // local HPU is involved in current iid
+      for (int j = 0; j < MAX_VAR_BLKS; j++) {
+        dst_store.state[iid][i][j] = DST_STATE_WAIT_NOTIFY;
       }
     }
   }
+  dst_store.cfg[iid] = (iop_dst_cfg_t) {.len = iop_dst->len, .max_blk = max_blk};
 }
 
 uint16_t dst_store_get_owned(uint8_t iid, uint8_t hid) {
-  for (int i = 0; i < MAX_DST_VARS; i++) {
+  iop_dst_cfg_t cfg = dst_store.cfg[iid];
+  for (int i = 0; i < cfg.len; i++) {
     if (dst_store.owner[iid][i] == hid) {
-      for (int j = 0; j < MAX_VAR_BLKS; j++) {
+      for (int j = 0; j < cfg.max_blk; j++) {
         if (dst_store.state[iid][i][j] == DST_STATE_WAIT_NOTIFY
           || dst_store.state[iid][i][j] == DST_STATE_READING) {
           return ((i << 8) + j);
@@ -423,10 +425,11 @@ uint32_t dst_store_get_owned_cnt(uint8_t iid, uint8_t hid) {
   uint8_t cnt_owned = 0;
   uint8_t cnt_waiting = 0;
   uint8_t cnt_resolved = 0;
-  for (int i = 0; i < MAX_DST_VARS; i++) {
+  iop_dst_cfg_t cfg = dst_store.cfg[iid];
+  for (int i = 0; i < cfg.len; i++) {
     if (dst_store.owner[iid][i] == hid) {
       cnt_owned+=1;
-      for (int j = 0; j < MAX_VAR_BLKS; j++) {
+      for (int j = 0; j < cfg.max_blk; j++) {
         if (dst_store.state[iid][i][j] == DST_STATE_WAIT_NOTIFY
           || dst_store.state[iid][i][j] == DST_STATE_READING) {
           cnt_waiting+=1;
