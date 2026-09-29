@@ -642,6 +642,7 @@ uint32_t parse_iop(
   uint32_t stream_pos = 0;
   //1. Get header
   header->raw = stream[stream_pos];
+  cur_iid = header->header.iid;
   stream_pos++;
 
   if ((stream_pos*sizeof(uint32_t)) > iop_pending_bytes) {
@@ -695,7 +696,6 @@ uint32_t parse_iop(
   }
 
 
-  cur_iid = dst->operand[0].iid;
   cur_mapping.raw = mapping->raw;
   uint8_t nb_hpu = number_of_hpu(*mapping);
   vOSAL_EnterCritical();
@@ -846,13 +846,13 @@ uint32_t get_lookup(IOpHeader_t header, IOpMapping_t mapping, uint8_t hid, Looku
   size_t max_fw_table_entry_ofst;
   size_t max_fw_size;
   uintptr_t entry_addr;
-  // Static IOp are indexed by max_align (i.e. integer_w)
+  // Static IOp are indexed by iop_align (i.e. integer_w)
   if (header.header.fw_mode == FW_STATIC) {
       // Read translation offset for the given entry
       // Offset is computed based on max blk_width to correctly handle asym IOp such as Cmp
-      uint8_t max_align = (header.header.dst_align > header.header.src_align)? header.header.dst_align: header.header.src_align;
-      if (max_align >= FW_TABLE_ENTRY) {
-        PLL_ERR("get_lookup", "[STATIC] max_align is wrong src %d dst %d", header.header.src_align, header.header.dst_align);
+      uint8_t iop_align = header.header.align;
+      if (iop_align >= FW_TABLE_ENTRY) {
+        PLL_ERR("get_lookup", "[STATIC] iop_align is wrong %d", iop_align);
         lookup->len = 0;
         lookup->ptr = NULL;
         return 1;
@@ -863,13 +863,13 @@ uint32_t get_lookup(IOpHeader_t header, IOpMapping_t mapping, uint8_t hid, Looku
       if (!get_used_of(hid, mapping)) {
         PLL_ERR("get_lookup", "[STATIC] Current hid %x is not involved in the IOp mapping", hid);
       }
-      uintptr_t integer_w_bucket = (uintptr_t) (DOP_LUT_ADDR + ((IOP_NUMBER * MAX_HPU_IN_CLUSTER * max_align) * sizeof(uint32_t)));
+      uintptr_t integer_w_bucket = (uintptr_t) (DOP_LUT_ADDR + ((IOP_NUMBER * MAX_HPU_IN_CLUSTER * iop_align) * sizeof(uint32_t)));
       uintptr_t iop_bucket = (uintptr_t) (integer_w_bucket + (header.header.opcode * MAX_HPU_IN_CLUSTER * sizeof(uint32_t)));
       uintptr_t fw_entry_addr = (uintptr_t) (iop_bucket + vid * sizeof(uint32_t));
 
       if ( (fw_entry_addr < DOP_LUT_ADDR) ||
            (fw_entry_addr > (DOP_LUT_ADDR + MAX_FW_TABLE_ENTRY_OFST))) {
-        PLL_ERR("get_lookup", "[STATIC] fw_entry_addr is not in expected range %lx, max_align %d, opcode %d header %x", fw_entry_addr, max_align, header.header.opcode, header.raw);
+        PLL_ERR("get_lookup", "[STATIC] fw_entry_addr is not in expected range %lx, iop_align %d, opcode %d header %x", fw_entry_addr, iop_align, header.header.opcode, header.raw);
         lookup->len = 0;
         lookup->ptr = NULL;
         return 1;
