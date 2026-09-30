@@ -27,7 +27,7 @@
 #define UPPER_FIREWALL                          ( 0xBABECAFE )
 #define LOWER_FIREWALL                          ( 0xDEADFACE )
 
-#define AXC_TASK_SLEEP_MS                       ( 100 )
+#define AXC_TASK_SLEEP_MS                       ( 1000 )
 #define AXC_TASK_SLEEP_1S                       ( 1*1000 )
 
 #define AXC_NAME                                "AXC"
