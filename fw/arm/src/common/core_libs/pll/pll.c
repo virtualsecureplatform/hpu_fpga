@@ -403,6 +403,11 @@ int iPLL_GetLoggingLevel( PLL_OUTPUT_LEVEL *pxLoggingLevel )
  */
 void vPLL_Output( PLL_OUTPUT_LEVEL xOutputLevel, const char *pcFormat, ... )
 {
+    if( ( pxThis->xOutputLevel < xOutputLevel ) && ( pxThis->xLoggingLevel < xOutputLevel ) )
+    {
+        return;
+    }
+
     if( ( UPPER_FIREWALL == pxThis->ulUpperFirewall ) &&
         ( LOWER_FIREWALL == pxThis->ulLowerFirewall ) &&
         ( TRUE == pxThis->iIsInitialised ) &&
