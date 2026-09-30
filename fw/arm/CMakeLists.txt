@@ -35,7 +35,7 @@ else()
         set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
         # set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-r5 -mfloat-abi=hard -mfpu=vfpv3-d16 -Werror -Wall")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-r5 -mfloat-abi=hard -mfpu=vfpv3-d16")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-r5 -mfloat-abi=hard -mfpu=vfpv3-d16 -O2 -g")
         set(OSAL_PATH "src/osal/src/freeRTOS/osal.c")
         set(FW_IF_PATH "src/fal/gcq/fw_if_gcq_amc.c")
         set(FW_I2C_PATH "src/device_drivers/i2c/aved/i2c.c")
