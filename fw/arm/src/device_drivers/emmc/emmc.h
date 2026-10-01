@@ -32,12 +32,12 @@
 /**
  * @brief   Initialises the EMMC driver.
  *
- * @param   ucDeviceId          The EMMC device ID
+ * @param   ucDeviceId          The EMMC device ID (SDT BSP: base address)
  *
  * @return  OK                  Driver successfully init
  *          ERROR               Driver init failed
  */
-int iEMMC_Initialise( uint16_t ucDeviceId );
+int iEMMC_Initialise( uint32_t ucDeviceId );
 
 /**
  * @brief   Read from the EMMC.

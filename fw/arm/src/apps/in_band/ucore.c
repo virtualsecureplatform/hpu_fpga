@@ -448,7 +448,7 @@ void dst_store_print(uint8_t iid) {
       }
       msg[8] = '\0';
       PLL_ERR("dst_store_print", "[HPU%d] iop %d dst %d owner %d: %s", phys_hpu_id, iid, i, dst_store.owner[iid][i], msg);
-      iOSAL_Task_SleepTicks(10);
+      iOSAL_Task_SleepMs(1);
     }
   }
 }
@@ -524,7 +524,7 @@ void iop_teardown(uint8_t iid) {
 #ifdef UCORE_MHDMA_SIMU
         sleep(10);
 #else
-        iOSAL_Task_SleepTicks(1);
+        iOSAL_Task_SleepUs(100);
 #endif
       }
     }
@@ -1015,7 +1015,7 @@ int read_remote_src(int blocking, OperandBundle_t *iop_src, uint8_t tid, uint8_t
 #ifdef UCORE_MHDMA_SIMU
         sleep(10);
 #else
-        iOSAL_Task_SleepTicks(1);
+        iOSAL_Task_SleepUs(100);
 #endif
       }
     }
@@ -1056,7 +1056,7 @@ int read_local_src(OperandBundle_t *iop_src, uint8_t tid, uint32_t *dop_buffer, 
 #ifdef UCORE_MHDMA_SIMU
         sleep(10);
 #else
-        iOSAL_Task_SleepTicks(1);
+        iOSAL_Task_SleepUs(100);
 #endif
     }
   }
@@ -1277,7 +1277,7 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
 #ifdef UCORE_MHDMA_SIMU
           sleep(12);
 #else
-          iOSAL_Task_SleepTicks(1);
+          iOSAL_Task_SleepUs(100);
 #endif
         }
       }

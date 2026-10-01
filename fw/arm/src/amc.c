@@ -21,6 +21,7 @@
 
 #include "xil_io.h"
 #include "xscugic.h"
+#include "xinterrupt_wrap.h"
 /* osal */
 #include "osal.h"
 #include <stdint.h>
@@ -107,6 +108,7 @@ typedef enum AMC_TASK_PRIOS
     AMC_TASK_PRIO_RSVD = 5,                                                    /* TODO: get actual value from osal.h */
 
     AMC_TASK_PRIO_DEFAULT,
+    AMC_TASK_PRIO_HPU_WORKER,
     MAX_AMC_TASK_PRIO
 
 } AMC_TASK_PRIOS;
@@ -299,7 +301,7 @@ volatile uint32_t *toAmiIopAckqData = ( volatile uint32_t* )( HAL_RPU_SHARED_MEM
 #define EDGE_SENSITIVE_INTR 0x3  // triggers on posedge of interrupt signal
 #define ACTIVE_ONE_INTR     0x1  // default value, triggers when signal is at 1
 
-extern XScuGic xInterruptController;
+extern uintptr_t IntrControllerAddr;    // GIC base address, exported by the FreeRTOS port
 
 // HPU global variables
 extern uint8_t cur_iid;
@@ -748,7 +750,7 @@ static void vTaskFuncMain( void )
        PLL_INF( AMC_NAME, "MHDMA MBOX initialised\r\n" );
     }
 
-    if ( OSAL_ERRORS_NONE != iOSAL_Task_Create(&xMhdmaWorkerTask, vMhdmaWorkerTask, 4096, NULL, AMC_TASK_PRIO_DEFAULT, "Mhdma Worker") ) {
+    if ( OSAL_ERRORS_NONE != iOSAL_Task_Create(&xMhdmaWorkerTask, vMhdmaWorkerTask, 4096, NULL, AMC_TASK_PRIO_HPU_WORKER, "Mhdma Worker") ) {
        PLL_ERR( AMC_NAME, "failed creating MHDMA worker task\r\n" );
     } else {
        PLL_INF( AMC_NAME, "MHDMA worker task initialised\r\n" );
@@ -760,12 +762,10 @@ static void vTaskFuncMain( void )
     } else {
        PLL_INF( AMC_NAME, "interrupt handler on isc interrupt initialised\r\n" );
     }
-    XScuGic_SetPriorityTriggerType(
-       &xInterruptController,
-       XPAR_FABRIC_RTL_INTERRUPT_1_INTR,
-       HIGH_PRIORITY_INTR,
-       EDGE_SENSITIVE_INTR
-    );
+    // the BSP keeps the GIC instance private: set the trigger through its interrupt wrapper
+    XSetPriorityTriggerType( ( XIL_TRIG_LOW_TO_HIGH_EDGE << XINTC_TRIGGER_SHIFT ) | XPAR_FABRIC_RTL_INTERRUPT_1_INTR,
+                             HIGH_PRIORITY_INTR,
+                             IntrControllerAddr );
     if( OSAL_ERRORS_NONE != iOSAL_Interrupt_Enable( XPAR_FABRIC_RTL_INTERRUPT_1_INTR) ) {
        PLL_ERR( AMC_NAME, "failed enabling isc interrupt\r\n" );
     } else {
@@ -952,13 +952,13 @@ static void vTaskFuncMain( void )
                     if (get_lookup(header, mapping, ucore_cfg.node_id, &dop_entry)) {
                         PLL_ERR("IOpQ", "Incorrect IOp processed [head 0x%x, last-tail 0x%x, current-tail 0x%x]", iopq_head, iopq_tail, (iopq_tail - iop_complete_len));
                         PLL_ERR("IOpQ", "chunk_idx %x chunk_size %d iop_complete_len %d", chunk_idx, chunk_size, iop_complete_len);
-                        iOSAL_Task_SleepTicks(2000);
+                        iOSAL_Task_SleepMs(200);
                         for (int i =0; i < 7; i++) {
                             PLL_ERR("IOpQ", "@%d -> 0x%x", i, Xil_EndianSwap32(iop_buffer[i]));
-                            iOSAL_Task_SleepTicks(2000);
+                            iOSAL_Task_SleepMs(200);
                         }
                         stop_consuming_iop = true;
-                        iOSAL_Task_SleepTicks(2000);
+                        iOSAL_Task_SleepMs(200);
                     }
 
                     PLL_DBG("UCORE", "[HPU%d] translation will patch and push %d dops @0x%x", phys_hpu_id, dop_entry.len, dop_entry.ptr);
@@ -1026,14 +1026,13 @@ static void vTaskFuncMain( void )
                 PLL_ERR("IOpQ", "Invalid IOp at %x stream ABORT dequeue (%d, %d, tail %x, head %x))", chunk_idx, chunk_size, wrap_chunk_size, iopq_tail, iopq_head);
                 for (int i =0; i < 7; i++) {
                     PLL_ERR("IOpQ", "invalid @%d -> 0x%x", i, Xil_EndianSwap32(iop_buffer[i]));
-                    iOSAL_Task_SleepTicks(2000);
+                    iOSAL_Task_SleepMs(200);
                 }
                 stop_consuming_iop = true;
-                iOSAL_Task_SleepTicks(2000);
+                iOSAL_Task_SleepMs(200);
             }
         }
-        // Give hand back to scheduler for other tasks
-        iOSAL_Task_SleepTicks(1);
+        iOSAL_Task_SleepUs(100);
         loop_cnt+=1;
     }
 }

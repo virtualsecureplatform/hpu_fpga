@@ -19,7 +19,7 @@
 
 /* QSFP */
 #define FAL_QSFP_PROCESS_TIME_MS              ( 2 )
-#define FAL_QSFP_PROCESS_TIME_TICKS           ( 10 )
+#define FAL_QSFP_PROCESS_TIME_TICKS           ( 1 )                         /* 1 ms at 1 kHz */
 #define FAL_QSFP_MAX_DATA                     ( 256 )
 #define FAL_QSFP_READ_DEFAULT_SIZE            ( 1 )
 #define FAL_QSFP_WRITE_DEFAULT_SIZE           ( 2 )

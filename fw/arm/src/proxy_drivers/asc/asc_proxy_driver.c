@@ -26,7 +26,7 @@
 #define UPPER_FIREWALL ( 0xBABECAFE )
 #define LOWER_FIREWALL ( 0xDEADFACE )
 
-#define ASC_TASK_SLEEP_MS ( 100 )
+#define ASC_TASK_SLEEP_MS ( 1000 )
 
 #define ASC_NAME "ASC"
 
@@ -86,7 +86,7 @@
 #define INC_ERROR_COUNTER( x )            { if( x < ASC_PROXY_ERRORS_MAX ) pxThis->pulErrorCounters[ x ]++; }
 #define INC_ERROR_COUNTER_WITH_STATE( x ) { pxThis->xState = MODULE_STATE_ERROR; INC_ERROR_COUNTER( x ) }
 #define SET_STAT_COUNTER( x, y )          { if( x < ASC_PROXY_ERRORS_MAX ) pxThis->pulStatCounters[ x ] = y; }
-#define ASC_ELAPSED_TIME_MS( x, y )       ( ( x - y ) / 10 );
+#define ASC_ELAPSED_TIME_MS( x, y )       ( x - y );
 
 
 /******************************************************************************/
@@ -977,7 +977,7 @@ static void vProxyDriverTask( void *pvArgs )
 
     FOREVER
     {
-        ulStartMs = ulOSAL_GetUptimeTicks();
+        ulStartMs = ulOSAL_GetUptimeMs();
         if( OSAL_ERRORS_NONE == iOSAL_Mutex_Take( pxThis->pvOsalMutexHdl, OSAL_TIMEOUT_WAIT_FOREVER ) )
         {
             INC_STAT_COUNTER( ASC_PROXY_STATS_TAKE_MUTEX )
@@ -1119,7 +1119,7 @@ static void vProxyDriverTask( void *pvArgs )
         {
             INC_ERROR_COUNTER_WITH_STATE( ASC_PROXY_ERRORS_MUTEX_TAKE_FAILED )
         }
-        pxThis->pulStatCounters[ ASC_PROXY_STATS_TASK_TIME_MS ] = ASC_ELAPSED_TIME_MS( ulOSAL_GetUptimeTicks(),
+        pxThis->pulStatCounters[ ASC_PROXY_STATS_TASK_TIME_MS ] = ASC_ELAPSED_TIME_MS( ulOSAL_GetUptimeMs(),
                                                                                        ulStartMs )
                                                                   iOSAL_Task_SleepMs( ASC_TASK_SLEEP_MS );
     }
