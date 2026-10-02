@@ -19,6 +19,11 @@ if( TEST_ENABLE )
     add_subdirectory( ./src/proxy_drivers/asc/test )
     add_subdirectory( ./src/proxy_drivers/bmc/test )
 else()
+    #if build type not specified, default to Release: the firmware is the release artifact
+    if(NOT CMAKE_BUILD_TYPE)
+        set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
+    endif()
+
     #if OS not specified, default to FreeRTOS
     if(NOT OS)
         set(OS "FreeRTOS")
@@ -32,10 +37,19 @@ else()
         set(CMAKE_SYSTEM_PROCESSOR arm)
         set(CMAKE_CROSSCOMPILING 1)
         set(CMAKE_C_COMPILER_WORKS TRUE)
-        set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 
-        # set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-r5 -mfloat-abi=hard -mfpu=vfpv3-d16 -Werror -Wall")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-r5 -mfloat-abi=hard -mfpu=vfpv3-d16 -O2 -g")
+        # Machine description. Also required on the link line: it drives the multilib
+        # selection of libgcc/libc
+        set(ARCH_FLAGS "-mcpu=cortex-r5 -mfloat-abi=hard -mfpu=vfpv3-d16")
+
+        # set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ARCH_FLAGS} -Werror -Wall")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ARCH_FLAGS}")
+        # NB: replaces the CMake default `-O3 -DNDEBUG`, i.e. assert() is kept enabled
+        set(CMAKE_C_FLAGS_RELEASE "-O3 -flto -funroll-loops -fomit-frame-pointer")
+
+        # With LTO the final codegen happens at link time, it needs the same flags
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${ARCH_FLAGS}")
+        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -O3 -flto")
         set(OSAL_PATH "src/osal/src/freeRTOS/osal.c")
         set(FW_IF_PATH "src/fal/gcq/fw_if_gcq_amc.c")
         set(FW_I2C_PATH "src/device_drivers/i2c/aved/i2c.c")

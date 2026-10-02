@@ -22,12 +22,12 @@
 
 //  IOpHeader -----------------------------------------------------------------
 struct iop_header_t  {
-  uint8_t src_align: 8;
-  uint8_t dst_align: 8;
-  uint8_t opcode: 8;
+  uint8_t iid: 8;
+  uint8_t align: 8;
   uint8_t has_imm: 1;
   uint8_t fw_mode: 1;
   uint8_t _reserved: 6;
+  uint8_t opcode: 8;
 } __attribute__((packed));
 
 // Constant used to decode fw_mode

@@ -119,6 +119,12 @@ typedef struct {
 } iop_state_t;
 
 typedef struct {
+  uint8_t len;
+  uint8_t max_blk;
+} iop_dst_cfg_t;
+
+typedef struct {
+  volatile iop_dst_cfg_t cfg[IOP_ID_MAX_COUNT];
   volatile uint8_t owner[IOP_ID_MAX_COUNT][MAX_DST_VARS];
   volatile uint8_t state[IOP_ID_MAX_COUNT][MAX_DST_VARS][MAX_VAR_BLKS];
 } dst_store_t;
@@ -198,6 +204,8 @@ void iop_close(uint8_t iid);
 uint32_t parse_iop(
      uint32_t *stream,
      uint32_t iop_pending_bytes,
+     // Node id for map filtering
+     uint8_t hid,
      // Static allocated buffer used during IOp parsing
      IOpHeader_t *header,
      IOpMapping_t *mapping,
