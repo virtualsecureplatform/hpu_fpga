@@ -119,6 +119,7 @@ typedef enum {
   MHDMA_CMD_PRINT_ACK,
   MHDMA_CMD_IOP_TEARDOWN,
   MHDMA_CMD_END_OF_IOP,
+  MHDMA_CMD_IOP_TEARDOWN_ACKED, // single-HPU IOp fast-path
 } MhdmaCmdType_t;
 
 typedef struct {
@@ -298,6 +299,17 @@ volatile uint32_t *toAmiIopAckqHead = ( volatile uint32_t* )( HAL_RPU_SHARED_MEM
 volatile uint32_t *toAmiIopAckqTail = ( volatile uint32_t* )( HAL_RPU_SHARED_MEMORY_BASE_ADDR + OFFSET_TO_AMI_IOPACKQ_TAIL );
 volatile uint32_t *toAmiIopAckqData = ( volatile uint32_t* )( HAL_RPU_SHARED_MEMORY_BASE_ADDR + OFFSET_TO_AMI_IOPACKQ_DATA_START );
 
+/* Push one ack word to the host queue.
+ * Called from the ISR, or from the worker within a critical section. */
+static inline void ackq_push(uint32_t ack) {
+    volatile uint32_t* ackq_idx = toAmiIopAckqData + (ackq_head % AMI_IOPACKQ_MAX_WORDS);
+    *ackq_idx = ack;
+    HAL_FLUSH_CACHE_DATA( (uintptr_t)ackq_idx, sizeof(uint32_t));
+    ackq_head += 1;
+    *toAmiIopAckqHead = ackq_head;
+    HAL_FLUSH_CACHE_DATA( (uintptr_t)toAmiIopAckqHead, sizeof(uint32_t));
+}
+
 #define HIGH_PRIORITY_INTR  0xA0 // default is around 0xA0 and lower val means higher priority
 #define EDGE_SENSITIVE_INTR 0x3  // triggers on posedge of interrupt signal
 #define ACTIVE_ONE_INTR     0x1  // default value, triggers when signal is at 1
@@ -329,10 +341,11 @@ extern volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 void vInterruptHandler_isc_ack( void* pvCallBackRef ) {
     isc_intr_global_cnt = isc_intr_global_cnt + 1;
 
-    // Head is initialised at tail value at startup and then
-    // incremented & written by vMhdmaWorkerTask after iop_teardown
-    // but interrupt can trigger right before *toAmiIopAckqHead is being written
-    // so to remove race we use global ackq_head value and not *toAmiIopAckqHead
+    // Head is initialised at tail value at startup, then only incremented & written
+    // by ackq_push(): from this ISR (single-HPU fast-path) or from vMhdmaWorkerTask
+    // after iop_teardown, inside a critical section. The global ackq_head is thus
+    // always coherent here: use it and not *toAmiIopAckqHead (no shared memory read,
+    // and no race with a worker write in flight).
     uint32_t head_snapshot = ackq_head;
     HAL_INVALIDATE_CACHE_DATA( (uintptr_t)toAmiIopAckqTail, sizeof(uint32_t) );
     ackq_tail = * toAmiIopAckqTail;
@@ -369,18 +382,16 @@ void vInterruptHandler_isc_ack( void* pvCallBackRef ) {
                   }
                 }
               } else {
-                // Write ack value in queue body
-                //volatile uint32_t* ackq_idx = toAmiIopAckqData + (ackq_head % AMI_IOPACKQ_MAX_WORDS);
-                //*ackq_idx = popped_iop_ack;
-                //HAL_FLUSH_CACHE_DATA( (uintptr_t)ackq_idx, sizeof(uint32_t));
-                //// Update queue head
-                //ackq_head += 1;
-                //*toAmiIopAckqHead = ackq_head;
-                //HAL_FLUSH_CACHE_DATA( (uintptr_t)toAmiIopAckqHead, sizeof(uint32_t));
                 LAT_STAMP(dop_ack.sync.iid, LAT_ACK_ISR);
                 MhdmaCommand_t cmd;
                 cmd.cmdID = MHDMA_CMD_IOP_TEARDOWN;
                 cmd.payload = popped_iop_ack;
+                if (iop_state[dop_ack.sync.iid].nb_hpu == 1) {
+                  // Single-HPU IOp fast-path: no remote destination to wait for, ack the host now.
+                  ackq_push(popped_iop_ack);
+                  LAT_STAMP(dop_ack.sync.iid, LAT_ACK_HOST);
+                  cmd.cmdID = MHDMA_CMD_IOP_TEARDOWN_ACKED;
+                }
                 if (iOSAL_MBox_PostFromISR(xMhdmaCommandMbox, (void*)&cmd) != 0) {
                   mbox_msg_lost_cnt+=1;
                 }
@@ -549,7 +560,8 @@ void vMhdmaWorkerTask(void *pvParameters) {
     if ( OSAL_ERRORS_NONE == iOSAL_MBox_Pend( xMhdmaCommandMbox, (void*)&rxCmd, OSAL_TIMEOUT_WAIT_FOREVER) ) {
       mbox_msg_cnt += 1;
       switch (rxCmd.cmdID) {
-        case MHDMA_CMD_IOP_TEARDOWN: {
+        case MHDMA_CMD_IOP_TEARDOWN:
+        case MHDMA_CMD_IOP_TEARDOWN_ACKED: {
           DOpu_t dop;
           dop.raw = rxCmd.payload;
           uint8_t ack_iid = dop.sync.iid;
@@ -558,15 +570,13 @@ void vMhdmaWorkerTask(void *pvParameters) {
           iop_teardown(ack_iid);
           //print_iop_state();
 
-          // Write ack value in queue body
-          volatile uint32_t* ackq_idx = toAmiIopAckqData + (ackq_head % AMI_IOPACKQ_MAX_WORDS);
-          *ackq_idx = dop.raw;
-          HAL_FLUSH_CACHE_DATA( (uintptr_t)ackq_idx, sizeof(uint32_t));
-          // Update queue head
-          ackq_head += 1;
-          *toAmiIopAckqHead = ackq_head;
-          HAL_FLUSH_CACHE_DATA( (uintptr_t)toAmiIopAckqHead, sizeof(uint32_t));
-          LAT_STAMP(ack_iid, LAT_ACK_HOST);
+          if (rxCmd.cmdID == MHDMA_CMD_IOP_TEARDOWN) {
+            // Multi-HPU IOp: ack the host once the remote destinations are resolved
+            vOSAL_EnterCritical();
+            ackq_push(dop.raw);
+            vOSAL_ExitCritical();
+            LAT_STAMP(ack_iid, LAT_ACK_HOST);
+          }
           iop_close(ack_iid);
           // Debug print after the ack: it can wait on the print semaphore
           PLL_DBG("MhdmaWorker", "[HPU%d] iop_teardown on iid %d done", phys_hpu_id, ack_iid);
@@ -1049,7 +1059,7 @@ static void vTaskFuncMain( void )
                 iOSAL_Task_SleepMs(200);
             }
         }
-        iOSAL_Task_SleepUs(100);
+        iOSAL_Task_SleepUs(10);
         loop_cnt+=1;
     }
 }

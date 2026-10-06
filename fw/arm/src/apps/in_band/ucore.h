@@ -70,8 +70,8 @@
 // Addr offset and size are defined through config structure
 #define MAX_CACHE_TABLE_ENTRY_OFST (1 + IOP_NUMBER*MAX_HPU_IN_CLUSTER)*sizeof(uint32_t)
 
-// WARN seems to have limitation on isc_write
-#define DOP_BUFFER_LOG2_SIZE 8
+// ISC inst pool is 64 DOps, do not put lower number than 6. higher leads to (small) higher lat in fw
+#define DOP_BUFFER_LOG2_SIZE 6
 #define DOP_BUFFER_SIZE (1 << DOP_BUFFER_LOG2_SIZE)
 #define MIN_DOP_FLUSH 0
 
