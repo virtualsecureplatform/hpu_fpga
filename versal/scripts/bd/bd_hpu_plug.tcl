@@ -111,7 +111,7 @@ namespace eval _nsp_hpu {
     variable RPU_ISC_WR_BURST_AVG 8
 
     # PCIE <-> HBM DMA
-    variable PCIE_HBM_DMA_RD_BW 256
+    variable PCIE_HBM_DMA_RD_BW 64
     variable PCIE_HBM_DMA_WR_BW 256
     variable PCIE_HBM_DMA_RD_BURST_AVG 256
     variable PCIE_HBM_DMA_WR_BURST_AVG 256
@@ -149,13 +149,11 @@ namespace eval _nsp_hpu {
     # APPLICATION_NAME_MSG2_CARRY2_PFAIL128_132B_TUNIFORM_144A47 parameter set and 16 NMUs for KSK
     # and BSK. If any of those assumptions change this needs to be revised.
     #
-    # NOTE: The BSK needs a minimum of 5000Mbps. The NOC bandwidth across all SLRs is roughly half
+    # NOTE: The BSK needs 6000Mbps per NMU. The NOC bandwidth across all SLRs is roughly half
     # of the normal physical lane bandwidth because of a limit in the number of outstanding
     # transactions in the NMU. So, we would only get roughly 5960Mbps per NMU, which is good enough.
     # The HBM access pattern relies on two NMUs connected directly to one pseudo-channel.
-    # Do not ask for more than what is needed here: with 6000 (half a NOC lane) NOC compiler breaks
-    # functionality by overwriting one DDR channel needed to boot.
-    variable HPU_BSK_HBM_RD_BW 5000
+    variable HPU_BSK_HBM_RD_BW 6000
     variable HPU_BSK_HBM_WR_BW 0
     variable HPU_BSK_HBM_RD_BURST_AVG 128
     variable HPU_BSK_HBM_WR_BURST_AVG 128
