@@ -440,8 +440,8 @@ void vInterruptHandler_mhdma_notify( void* pvCallBackRef ) {
       // This is a debug msg to print received notify
       MhdmaCommand_t cmd;
       cmd.cmdID = MHDMA_CMD_PRINT_ERR;
-      cmd.payload = (iid << 24 | (notify.fields.src_cid & 0xF) << 20 | slave_hpu_id << 16 | mode << 8 | flag);
-      cmd.debug   = notify_data | ((uint64_t)iop_state[iid].state << 32);
+      cmd.payload = DDR_TRC_HDR(DDR_TRC_TAG_MHDMA, DDR_TRC_MHDMA_NOTIFY, iop_state[iid].state);
+      cmd.debug   = notify_data;
       if (xMhdmaCommandMbox) {
         if (iOSAL_MBox_PostFromISR(xMhdmaCommandMbox, (void*)&cmd) != 0) {
           mbox_msg_lost_cnt+=1;
@@ -516,7 +516,7 @@ void vInterruptHandler_mhdma_read_complete( void* pvCallBackRef ) {
     // This is a debug msg to print received read complete
     MhdmaCommand_t cmd;
     cmd.cmdID = MHDMA_CMD_PRINT_ERR;
-    cmd.payload = (iid << 24 | mode << 20 | src_store.state[iid][tid][bid] << 16  | flag << 8 | rc.fields._pad) | 0x80000000;
+    cmd.payload = DDR_TRC_HDR(DDR_TRC_TAG_MHDMA, DDR_TRC_MHDMA_READ_DONE, src_store.state[iid][tid][bid]);
     cmd.debug   = rc_data;
     if (xMhdmaCommandMbox) {
       if (iOSAL_MBox_PostFromISR(xMhdmaCommandMbox, (void*)&cmd) != 0) {
@@ -596,7 +596,7 @@ void vMhdmaWorkerTask(void *pvParameters) {
           vOSAL_EnterCritical();
           iop_state_node_ack(iid, nb_hpu);
           if (debug_intr_global_cnt%2 == 1) {
-            print_ddr_debug(0xBEE30000 | ((uint32_t)iid << 8) | iop_state[iid].iop_locally_seen << 7 | iop_state[iid].nb_hpu << 4 | iop_state[iid].state);
+            print_ddr_debug(DDR_TRC_IOP_STATE(DDR_TRC_IOP_REMOTE, iid));
           }
           vOSAL_ExitCritical();
 
@@ -639,14 +639,14 @@ void vMhdmaWorkerTask(void *pvParameters) {
         }
 
         case MHDMA_CMD_PRINT_ERR: {
-          print_ddr_debug(rxCmd.payload);
-          print_ddr_debug(rxCmd.debug & 0xFFFFFFFF);
-          print_ddr_debug((rxCmd.debug >> 32) & 0xFFFFFFFF);
+          // payload is the trace header, debug the raw mhdma_cmd_t (req_id, req_addr)
+          uint32_t raw_cmd[2] = {rxCmd.debug & 0xFFFFFFFF, (rxCmd.debug >> 32) & 0xFFFFFFFF};
+          print_ddr_event(rxCmd.payload, raw_cmd, 2);
           break;
         }
 
         case MHDMA_CMD_PRINT_ACK: {
-          print_ddr_debug(rxCmd.payload);
+          print_ddr_event(DDR_TRC_HDR(DDR_TRC_TAG_ACK, 0, 0), &rxCmd.payload, 1);
           break;
         }
 

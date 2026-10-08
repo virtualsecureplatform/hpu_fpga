@@ -112,6 +112,48 @@
 // 0x20000 uint32_t means max should be at 0x7F80004 (0x3FF80004)
 #define DEBUG_SIZE 0x20000
 
+// DDR debug trace record format (decoded by `hputil fw-trace`, keep in sync with
+// tfhe-hpu-backend/src/utils/fw_trace.rs)
+// *DEBUG_PTR holds the total (un-wrapped) number of words written since boot.
+// Each record starts with a header word: tag[31:20] | sub[19:16] | fields[15:0]
+// followed by a fixed number of payload words (given by tag/sub):
+//  tag   | sub                          | fields[15:0]                    | payload
+//  0xBEE | site | seen<<3               | iid<<8 | nb_hpu<<4 | state     | -
+//  0xB2B | 0: free request              | tail_iid<<8 | iid               | -
+//  0xB2B | 1: free done                 | iid                             | pool_free_cnt<<16 | freed_cnt
+//  0xD57 | site                         | iid                             | owned<<16 | waiting<<8 | resolved
+//  0xACC | 0                            | -                               | raw DOp ack
+//  0xC0D | 1: notify / 2: read complete | iop_state / src_store state     | req_id, req_addr (mhdma_cmd_t)
+#define DDR_TRC_HDR(tag, sub, fields) \
+  ((((uint32_t)(tag) & 0xFFF) << 20) | (((uint32_t)(sub) & 0xF) << 16) | ((uint32_t)(fields) & 0xFFFF))
+
+#define DDR_TRC_TAG_IOP_STATE 0xBEE
+#define DDR_TRC_TAG_B2B       0xB2B
+#define DDR_TRC_TAG_DST_CNT   0xD57
+#define DDR_TRC_TAG_ACK       0xACC
+#define DDR_TRC_TAG_MHDMA     0xC0D
+
+// 0xBEE sites
+#define DDR_TRC_IOP_PARSE  1 // parse_iop: IOp started locally
+#define DDR_TRC_IOP_CLOSE  2 // iop_close: IOp done locally, after host ack
+#define DDR_TRC_IOP_REMOTE 3 // end of IOp notify received from a remote HPU
+#define DDR_TRC_IOP_STATE(site, iid) \
+  DDR_TRC_HDR(DDR_TRC_TAG_IOP_STATE, (site) | ((iop_state[iid].iop_locally_seen & 0x1) << 3), \
+              ((uint32_t)(iid) << 8) | ((iop_state[iid].nb_hpu & 0xF) << 4) | (iop_state[iid].state & 0xF))
+
+// 0xB2B sub
+#define DDR_TRC_B2B_FREE_REQ  0
+#define DDR_TRC_B2B_FREE_DONE 1
+
+// 0xD57 sites
+#define DDR_TRC_DST_PARSE          1 // parse_iop: dst store initialised
+#define DDR_TRC_DST_TEARDOWN       2 // iop_teardown: before waiting on owned dst
+#define DDR_TRC_DST_TEARDOWN_WAIT  3 // iop_teardown: one more owned dst resolved
+
+// 0xC0D sub
+#define DDR_TRC_MHDMA_NOTIFY    1
+#define DDR_TRC_MHDMA_READ_DONE 2
+
 typedef struct {
   uint8_t state;
   uint8_t nb_hpu;
@@ -180,6 +222,7 @@ typedef struct {
 // Hpu functions prototypes
 // ============================================================================================= //
 void print_ddr_debug(uint32_t data);
+void print_ddr_event(uint32_t hdr, const uint32_t *payload, uint8_t len);
 void mhdma_table_reset(void);
 void iop_state_init(void);
 void iop_state_node_ack(uint8_t iid, uint8_t nb_hpu);

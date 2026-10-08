@@ -45,15 +45,28 @@ volatile uint32_t *debugPtrAddr = ( volatile uint32_t* )( HAL_RPU_SHARED_MEMORY_
 volatile uint32_t *debugZoneAddr = ( volatile uint32_t* )( HAL_RPU_SHARED_MEMORY_BASE_ADDR + DEBUG_ADDR);
 uint32_t debugZonePtr = 0;
 
-void print_ddr_debug(uint32_t data) {
-  volatile uint32_t* debug_idx = debugZoneAddr + (debugZonePtr % DEBUG_SIZE);
-  *debug_idx = data;
-  HAL_FLUSH_CACHE_DATA( (uintptr_t)debug_idx, sizeof(uint32_t));
-  debugZonePtr += 1;
-  *debugPtrAddr = (debugZonePtr % DEBUG_SIZE);
+// Write a full record (header + payload) atomically w.r.t. other tasks so records never interleave.
+// *debugPtrAddr is the total number of words written (un-wrapped) so the host can detect wrapping.
+void print_ddr_event(uint32_t hdr, const uint32_t *payload, uint8_t len) {
+  vOSAL_EnterCritical();
+  for (uint8_t i = 0; i <= len; i++) {
+    volatile uint32_t* debug_idx = debugZoneAddr + (debugZonePtr % DEBUG_SIZE);
+    *debug_idx = (i == 0) ? hdr : payload[i-1];
+    HAL_FLUSH_CACHE_DATA( (uintptr_t)debug_idx, sizeof(uint32_t));
+    debugZonePtr += 1;
+  }
+  *debugPtrAddr = debugZonePtr;
   HAL_FLUSH_CACHE_DATA( (uintptr_t)debugPtrAddr, sizeof(uint32_t));
+  vOSAL_ExitCritical();
+}
+
+void print_ddr_debug(uint32_t data) {
+  print_ddr_event(data, NULL, 0);
 }
 #else
+void print_ddr_event(uint32_t hdr, const uint32_t *payload, uint8_t len) {
+  while(0);
+}
 void print_ddr_debug(uint32_t data) {
   while(0);
 }
@@ -136,6 +149,7 @@ void b2b_pool_init(void) {
 uint16_t b2b_pool_pop(uint8_t iid) {
   vOSAL_EnterCritical();
   if (b2b_pool_free_cnt == 0) {
+    vOSAL_ExitCritical();
     return 0xFFFF; // this means no more empty slot
   }
   uint16_t alloc_slot = b2b_pool_head;
@@ -148,16 +162,18 @@ uint16_t b2b_pool_pop(uint8_t iid) {
 
 uint16_t b2b_pool_free(uint8_t iid) {
   vOSAL_EnterCritical();
-  print_ddr_debug(0xB2B00000 | (b2b_pool[b2b_pool_tail] << 8) | iid);
+  print_ddr_debug(DDR_TRC_HDR(DDR_TRC_TAG_B2B, DDR_TRC_B2B_FREE_REQ, (b2b_pool[b2b_pool_tail] << 8) | iid));
   if (b2b_pool_free_cnt == B2B_POOL_SIZE) {
     // we should not be doing a free
     // maybe this iop did not use any slot
+    vOSAL_ExitCritical();
     return 0;
   }
   if (b2b_pool[b2b_pool_tail] != iid) {
     // at tail, we should find iid we are trying to free
     // unless IOp iid=N has finished before a smaller iid M=b2b_pool[b2b_pool_tail] (with N>M)
     // in this case we will not free the slot allocated to iid N but wait for iid M to do so
+    vOSAL_ExitCritical();
     return 0;
   }
   uint16_t free_cnt = 0;
@@ -172,8 +188,8 @@ uint16_t b2b_pool_free(uint8_t iid) {
     b2b_pool_free_cnt++;
     free_cnt++;
   }
-  print_ddr_debug(0xB2B00000+iid);
-  print_ddr_debug((b2b_pool_free_cnt << 16) + free_cnt);
+  uint32_t b2b_cnts = ((uint32_t)b2b_pool_free_cnt << 16) | free_cnt;
+  print_ddr_event(DDR_TRC_HDR(DDR_TRC_TAG_B2B, DDR_TRC_B2B_FREE_DONE, iid), &b2b_cnts, 1);
   vOSAL_ExitCritical();
   return free_cnt;
 }
@@ -492,7 +508,7 @@ void iop_teardown(uint8_t iid) {
   uint8_t dst_cnt_owned = (dst_cnts >> 16) & 0xFF;
   uint8_t dst_cnt_waiting = (dst_cnts >> 8) & 0xFF;
   if (debug_intr_global_cnt%2 == 1) {
-    print_ddr_debug((uint32_t)(iid << 24) | dst_cnts);
+    print_ddr_event(DDR_TRC_HDR(DDR_TRC_TAG_DST_CNT, DDR_TRC_DST_TEARDOWN, iid), &dst_cnts, 1);
   }
   PLL_DBG("ucore", "[HPU%d] iop_teardown iid %d dst waiting: %d/%d iop_state %d/%d", phys_hpu_id, iid, dst_cnt_owned, dst_cnt_waiting, iop_state[iid].state, iop_state[iid].nb_hpu);
 
@@ -537,7 +553,7 @@ void iop_teardown(uint8_t iid) {
     dst_cnt_owned = (dst_cnts >> 16) & 0xFF;
     dst_cnt_waiting = (dst_cnts >> 8) & 0xFF;
     if (debug_intr_global_cnt%2 == 1) {
-      print_ddr_debug((uint32_t)(iid << 24) | dst_cnts);
+      print_ddr_event(DDR_TRC_HDR(DDR_TRC_TAG_DST_CNT, DDR_TRC_DST_TEARDOWN_WAIT, iid), &dst_cnts, 1);
     }
     non_resolved_owned_dst = dst_store_get_owned(iid, phys_hpu_id);
   }
@@ -568,7 +584,7 @@ void iop_close(uint8_t iid) {
   // update iop_state
   iop_state_node_ack(iid, iop_state[iid].nb_hpu);
   if (debug_intr_global_cnt%2 == 1) {
-    print_ddr_debug(0xBEE20000 | ((uint32_t)iid << 8) | iop_state[iid].iop_locally_seen << 7 | iop_state[iid].nb_hpu << 4 | iop_state[iid].state);
+    print_ddr_debug(DDR_TRC_IOP_STATE(DDR_TRC_IOP_CLOSE, iid));
   }
   vOSAL_ExitCritical();
 
@@ -685,7 +701,7 @@ uint32_t parse_iop(
   }
   iop_state[cur_iid].iop_locally_seen = 1;
   if (debug_intr_global_cnt%2 == 1) {
-    print_ddr_debug(0xBEE10000 | ((uint32_t)cur_iid << 8) | iop_state[cur_iid].iop_locally_seen << 7 | iop_state[cur_iid].nb_hpu << 4 | iop_state[cur_iid].state);
+    print_ddr_debug(DDR_TRC_IOP_STATE(DDR_TRC_IOP_PARSE, cur_iid));
   }
   vOSAL_ExitCritical();
   PLL_INF("parse_iop", "[HPU%d] parse_iop starting iop %d (virt hid %d) state %d nb_hpu %d",
@@ -739,7 +755,7 @@ uint32_t parse_iop(
 
     uint32_t dst_cnts = dst_store_get_owned_cnt(cur_iid, phys_hpu_id);
     if (debug_intr_global_cnt%2 == 1) {
-      print_ddr_debug((uint32_t)(cur_iid << 24) | dst_cnts);
+      print_ddr_event(DDR_TRC_HDR(DDR_TRC_TAG_DST_CNT, DDR_TRC_DST_PARSE, cur_iid), &dst_cnts, 1);
     }
     uint8_t dst_cnt_owned = (dst_cnts >> 16) & 0xFF;
     uint8_t dst_cnt_waiting = (dst_cnts >> 8) & 0xFF;
