@@ -111,7 +111,7 @@ namespace eval _nsp_hpu {
     variable RPU_ISC_WR_BURST_AVG 8
 
     # PCIE <-> HBM DMA
-    variable PCIE_HBM_DMA_RD_BW 64
+    variable PCIE_HBM_DMA_RD_BW 256
     variable PCIE_HBM_DMA_WR_BW 256
     variable PCIE_HBM_DMA_RD_BURST_AVG 256
     variable PCIE_HBM_DMA_WR_BURST_AVG 256
