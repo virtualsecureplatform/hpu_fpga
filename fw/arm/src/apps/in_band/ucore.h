@@ -38,7 +38,7 @@
 // Constants
 // ============================================================================================= //
 #define UCORE_VERSION_MAJOR              (3)
-#define UCORE_VERSION_MINOR              (0)
+#define UCORE_VERSION_MINOR              (1)
 
 #define OFFSET_TO_AMI_IOPACKQ_HEAD       (0x200000)
 #define OFFSET_TO_AMI_IOPACKQ_DATA_START (0x200004)
