@@ -115,3 +115,17 @@ add_cells_to_pblock -quiet [get_pblocks pblock_SLL0TOP] [get_cells -hier -regexp
 #    }
 #]
 #set_property USER_SLL_REG TRUE $sll_regs
+
+#---------------------------------------------------------------------------------------------
+# NoC pin: start place_design from the reference NoC solution for PSI 64
+#---------------------------------------------------------------------------------------------
+set noc_pin $::env(PROJECT_DIR)/versal/constraints/noc/top_hpu_psi${::ntt_psi}.ncr
+if {$::ntt_psi == 64} {
+  if {[file exists $noc_pin]} {
+      puts "INFO> NoC pin: loading $noc_pin"
+      read_noc_solution -no_update $noc_pin
+      write_noc_solution -force -file noc_pin_loaded.ncr
+  } else {
+      common::send_msg_id {NOC_PIN-1} {WARNING} "no NoC pin for PSI ${::ntt_psi} ($noc_pin): place_design solves the NoC freely"
+  }
+}
