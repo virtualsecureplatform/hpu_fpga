@@ -394,6 +394,9 @@ git clone https://github.com/zama-ai/dma_ip_drivers.git zama_qdma
 sudo cp zama_qdma/QDMA/linux-kernel/scripts/42-qdma.rules /etc/udev/rules.d/
 udevadm control --reload-rules && udevadm trigger
 
+sudo cp QDMA/linux-kernel/scripts/90-hpu-hugepages.conf /etc/sysctl.d/ 
+sudo sysctl --system
+
 cd zama_qdma/QDMA/linux-kernel/
 TANDEM_BOOT_SUPPORTED=1 make
 
