@@ -75,6 +75,7 @@
 
 /* HPU related */
 #include "ucore.h"
+#include "ucore_lat.h"
 #include "mhdma_driver.h"
 
 /******************************************************************************/
@@ -376,6 +377,7 @@ void vInterruptHandler_isc_ack( void* pvCallBackRef ) {
                 //ackq_head += 1;
                 //*toAmiIopAckqHead = ackq_head;
                 //HAL_FLUSH_CACHE_DATA( (uintptr_t)toAmiIopAckqHead, sizeof(uint32_t));
+                LAT_STAMP(dop_ack.sync.iid, LAT_ACK_ISR);
                 MhdmaCommand_t cmd;
                 cmd.cmdID = MHDMA_CMD_IOP_TEARDOWN;
                 cmd.payload = popped_iop_ack;
@@ -552,6 +554,7 @@ void vMhdmaWorkerTask(void *pvParameters) {
           dop.raw = rxCmd.payload;
           uint8_t ack_iid = dop.sync.iid;
           //PLL_ERR("MhdmaWorker", "[HPU%d] iop_teardown starting on iid %d (state %d)", phys_hpu_id, ack_iid, iop_state[ack_iid].state);
+          LAT_STAMP(ack_iid, LAT_TEARDOWN);
           iop_teardown(ack_iid);
           //print_iop_state();
 
@@ -563,11 +566,13 @@ void vMhdmaWorkerTask(void *pvParameters) {
           ackq_head += 1;
           *toAmiIopAckqHead = ackq_head;
           HAL_FLUSH_CACHE_DATA( (uintptr_t)toAmiIopAckqHead, sizeof(uint32_t));
+          LAT_STAMP(ack_iid, LAT_ACK_HOST);
           iop_close(ack_iid);
           // Debug print after the ack: it can wait on the print semaphore
           PLL_DBG("MhdmaWorker", "[HPU%d] iop_teardown on iid %d done", phys_hpu_id, ack_iid);
           // Flush remote source queue after the ack, off the critical path
           src_store_reset_iop(ack_iid);
+          LAT_DUMP(ack_iid);
           break;
         }
 
@@ -848,6 +853,7 @@ static void vTaskFuncMain( void )
     uint16_t loop_cnt = 0;
     uint32_t mbox_msg_lost_cnt_saved = 0;
 
+    LAT_INIT();
     vAmcStatusOr( HAL_AMC_STATUS_MAIN_RUNNING );
 
     FOREVER {
@@ -902,6 +908,7 @@ static void vTaskFuncMain( void )
         //      they are copied in a continuous buffer before parsing.
         //      This buffer have the depth of the longest supported IOp (Currently fixed at compile time)
         //      After parsing only the used bytes are consumed from the queue
+        LAT_POLL(iopq_used_bytes != 0);
         if (iopq_used_bytes != 0 && !stop_consuming_iop) {
             if (debug_intr_global_cnt%2 == 1) {
                 PLL_DBG("AMC", "interrupt[1](isc) count %d edges", isc_intr_global_cnt);
@@ -969,6 +976,7 @@ static void vTaskFuncMain( void )
                         iOSAL_Task_SleepMs(200);
                     }
 
+                    LAT_PARSED(cur_iid);
                     PLL_DBG("UCORE", "[HPU%d] translation will patch and push %d dops @0x%x", phys_hpu_id, dop_entry.len, dop_entry.ptr);
                     int skip = 0;
                     int dop_buffer_pos = 0;
@@ -1029,6 +1037,7 @@ static void vTaskFuncMain( void )
                     PLL_DBG("UCORE", "flush %d remaining value to isc (len %d skip %d)", remaining_dop, dop_entry.len, skip);
                     //PLL_DBG("UCORE", "dop_buffer %08x %08x %08x ... %08x %08x %08x",dop_buffer[0], dop_buffer[1], dop_buffer[2], dop_buffer[remaining_dop-2], dop_buffer[remaining_dop-1], dop_buffer[remaining_dop]);
                     flush_dop_buffer_to_isc(dop_buffer, remaining_dop);
+                    LAT_STAMP(cur_iid, LAT_LAST_FLUSH);
                 }
             } else {
                 PLL_ERR("IOpQ", "Invalid IOp at %x stream ABORT dequeue (%d, %d, tail %x, head %x))", chunk_idx, chunk_size, wrap_chunk_size, iopq_tail, iopq_head);

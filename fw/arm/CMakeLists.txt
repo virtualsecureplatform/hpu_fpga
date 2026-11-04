@@ -6,6 +6,10 @@ cmake_minimum_required(VERSION 3.5.0)
 project( amc )
 
 add_definitions( -DRUN_TIME )
+option( UCORE_LAT_TRACE "IOp latency trace in the AMC log" OFF )
+if( UCORE_LAT_TRACE )
+    add_definitions( -DUCORE_LAT_TRACE )
+endif()
 
 #adds test directories if test flag set to true
 if( TEST_ENABLE )
@@ -145,12 +149,14 @@ else()
     include_directories(src/apps/asdm)
     include_directories(src/apps/in_band)
     include_directories(src/apps/in_band/mhdma_driver)
+    include_directories(src/apps/in_band/trace)
     include_directories(src/apps/out_of_band)
     include_directories(src/apps/bim)
 
     #Add main app executable
     add_executable(${NAME}
                 src/amc.c
+                src/apps/in_band/trace/ucore_lat.c
                 ${OSAL_PATH}
                 src/common/core_libs/pll/pll.c
                 src/common/core_libs/evl/evl.c

@@ -13,6 +13,7 @@
 #include "xparameters.h"
 
 #include "profile_hal.h"
+#include "ucore_lat.h"
 
 /* Writing to ISC ---------------------------------------------------------------------------------
  *
@@ -69,14 +70,18 @@ int write_isc(uint32_t *pucData, uint32_t writeSize) {
 
 void flush_dop_buffer_to_isc(uint32_t *dop_buffer, int number_of_dop) {
     uint32_t write_isc_rv = OK;
+    LAT_FLUSH();
     //PLL_DBG("UCORE", "trying to flush %d dop to isc", number_of_dop);
     //PLL_ERR("UCORE", "dop_buffer %08x %08x %08x ... %08x %08x %08x",dop_buffer[0], dop_buffer[1], dop_buffer[2], dop_buffer[number_of_dop-2], dop_buffer[number_of_dop-1], dop_buffer[number_of_dop]);
     write_isc_rv = write_isc(dop_buffer, (uint32_t) (number_of_dop * sizeof(uint32_t)));
+    LAT_WAIT_BEGIN(t_isc);
     while (write_isc_rv == RETRY) {
         //PLL_DBG("UCORE", "retry flush %d value to isc", number_of_dop);
+        LAT_RETRY();
         iOSAL_Task_SleepUs(100);
         write_isc_rv = write_isc(dop_buffer, (uint32_t) (number_of_dop * sizeof(uint32_t)));
     }
+    LAT_WAIT_END(cur_iid, LAT_WAIT_ISC, t_isc);
 }
 
 /* Checking if acknowledge AXIS is not empty ------------------------------------------------------

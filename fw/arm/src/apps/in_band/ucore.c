@@ -21,6 +21,7 @@
 #include "stream_isc.h"
 #endif
 #include "ucore.h"
+#include "ucore_lat.h"
 #include "mhdma_driver/mhdma_driver.h"
 #include <stdbool.h>
 
@@ -497,6 +498,7 @@ void iop_teardown(uint8_t iid) {
 
   //wait dst owned by local hpu but produced somewhere else
   //dst_store_print(iid);
+  LAT_STAMP(iid, LAT_WT_START);
   uint16_t non_resolved_owned_dst = dst_store_get_owned(iid, phys_hpu_id);
   while (non_resolved_owned_dst != 0xFFFF) {
     // wait until notify or read ct is received
@@ -540,6 +542,7 @@ void iop_teardown(uint8_t iid) {
     non_resolved_owned_dst = dst_store_get_owned(iid, phys_hpu_id);
   }
   // All dst owned by the local HPU are now resolved.
+  LAT_STAMP(iid, LAT_WT_DONE);
 }
 
 // IOp closing, to be called after the host ack
@@ -1010,6 +1013,7 @@ int read_remote_src(int blocking, OperandBundle_t *iop_src, uint8_t tid, uint8_t
       return_value = (dop_buffer_pos%DOP_BUFFER_SIZE);
     }
 #endif
+    LAT_WAIT_BEGIN(t_src);
     uint32_t wait_cnt = 0;
     while (src_store.state[cur_iid][tid][bid] != OPERAND_STATE_RESOLVED) {
       // wait until notify or read ct is received
@@ -1033,6 +1037,7 @@ int read_remote_src(int blocking, OperandBundle_t *iop_src, uint8_t tid, uint8_t
 #endif
       }
     }
+    LAT_WAIT_END(cur_iid, LAT_WAIT_SRC, t_src);
   }
 
   return return_value;
@@ -1055,6 +1060,7 @@ int read_local_src(OperandBundle_t *iop_src, uint8_t tid, uint32_t *dop_buffer, 
     return_value = (dop_buffer_pos%DOP_BUFFER_SIZE);
   }
 #endif
+  LAT_WAIT_BEGIN(t_dep);
   uint32_t wait_cnt = 0;
   while (iop_state[src_iid].state != IOP_STATE_DONE) {
     // wait until
@@ -1074,6 +1080,7 @@ int read_local_src(OperandBundle_t *iop_src, uint8_t tid, uint32_t *dop_buffer, 
 #endif
     }
   }
+  LAT_WAIT_END(cur_iid, LAT_WAIT_DEP, t_dep);
 
   return return_value;
 }
@@ -1279,6 +1286,7 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
         return_value = (dop_buffer_pos%DOP_BUFFER_SIZE);
       }
 #endif
+      LAT_WAIT_BEGIN(t_flg);
       uint32_t wait_cnt = 0;
       while (  (data_required && mhdma_rx_table_state[cur_iid][wait_flag] < MHDMA_STATE_RESOLVED)
             || (!data_required && mhdma_rx_table_state[cur_iid][wait_flag] < MHDMA_STATE_RECEIVED) ) {
@@ -1295,6 +1303,7 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
 #endif
         }
       }
+      LAT_WAIT_END(cur_iid, LAT_WAIT_FLG, t_flg);
       // This DOp needs to be removed from DOp stream given to ISC
       return_value = 0x8000 | return_value;
       break;

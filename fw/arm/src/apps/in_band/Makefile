@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -O0 -Wno-packed-bitfield-compat -Wno-format-extra-args -DUCORE_MHDMA_SIMU
 TARGET = mhdma_fw
-INCLUDES = -I ../../profiles/v80/ -I ../../device_drivers/eeprom/ -I ../../common/include/ -I ../../../amc_bsp/ws/amc_bsp/psv_cortexr5_0/freertos_domain/bsp/include/ -I mhdma_driver/
+INCLUDES = -I ../../profiles/v80/ -I ../../device_drivers/eeprom/ -I ../../common/include/ -I ../../../amc_bsp/ws/amc_bsp/psv_cortexr5_0/freertos_domain/bsp/include/ -I mhdma_driver/ -I trace/
 
 all: $(TARGET)
 
