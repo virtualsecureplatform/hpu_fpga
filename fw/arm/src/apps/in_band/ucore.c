@@ -1304,6 +1304,16 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
         }
       }
       LAT_WAIT_END(cur_iid, LAT_WAIT_FLG, t_flg);
+      vOSAL_EnterCritical();
+      // Consume flag at end of wait
+      // To enable proper flag recycling, a flag could be awaited only once.
+      mhdma_rx_table_state[cur_iid][wait_flag] = MHDMA_STATE_EMPTY;
+      PLL_DBG("ucore", "[HPU%d] dop wait on iop_id %d consume %d flag",
+              phys_hpu_id,
+              cur_iid,
+              dop->ucore.flag);
+      vOSAL_ExitCritical();
+
       // This DOp needs to be removed from DOp stream given to ISC
       return_value = 0x8000 | return_value;
       break;
@@ -1319,7 +1329,6 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
         // so we do not want an ISR to update it in parallel
         vOSAL_EnterCritical();
         switch (mhdma_rx_table_state[cur_iid][ldb2b_flag]) {
-          case MHDMA_STATE_RESOLVED: break; // nothing to do
           case MHDMA_STATE_RECEIVED: { // must read asap
             mhdma_rx_table_state[cur_iid][ldb2b_flag] = MHDMA_STATE_READING;
             PLL_DBG("process_ucore_dop", "[HPU%d] generate user read on iid %d flag %d (%04x -> %04x)",
@@ -1331,6 +1340,10 @@ int process_ucore_dop(DOpu_t *dop, OperandBundle_t *iop_src, uint32_t *dop_buffe
             generate_read_req(cur_iid, ldb2b_flag);
             break;
           }
+
+          // Consume flag
+          // To enable proper flag recycling, a flag could be awaited only once.
+          // case MHDMA_STATE_RESOLVED => fallback to default
           default: { // must wait for notify
             mhdma_rx_table_state[cur_iid][ldb2b_flag] = MHDMA_STATE_LB2B_WAITING;
             PLL_DBG("process_ucore_dop", "[HPU%d] ld b2b waiting on iid %d flag %d (?? -> %04x)",
