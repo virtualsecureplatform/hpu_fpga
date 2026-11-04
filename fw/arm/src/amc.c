@@ -328,12 +328,14 @@ extern volatile uint8_t mhdma_rx_table_state[IOP_ID_MAX_COUNT][FLAG_MAX_COUNT];
 void vInterruptHandler_isc_ack( void* pvCallBackRef ) {
     isc_intr_global_cnt = isc_intr_global_cnt + 1;
 
-    // NB: Head is only written by AMC after init
-    // -> No need to invalidate the cache
-    ackq_head = * toAmiIopAckqHead;
+    // Head is initialised at tail value at startup and then
+    // incremented & written by vMhdmaWorkerTask after iop_teardown
+    // but interrupt can trigger right before *toAmiIopAckqHead is being written
+    // so to remove race we use global ackq_head value and not *toAmiIopAckqHead
+    uint32_t head_snapshot = ackq_head;
     HAL_INVALIDATE_CACHE_DATA( (uintptr_t)toAmiIopAckqTail, sizeof(uint32_t) );
     ackq_tail = * toAmiIopAckqTail;
-    uint32_t ackq_free_words = AMI_IOPACKQ_MAX_WORDS + ackq_tail - ackq_head;
+    uint32_t ackq_free_words = AMI_IOPACKQ_MAX_WORDS + ackq_tail - head_snapshot;
 
     if (ackq_free_words != 0) {
         // Write ack value in queue body
@@ -844,6 +846,7 @@ static void vTaskFuncMain( void )
     DOpu_t   dop;
     bool stop_consuming_iop = false;
     uint16_t loop_cnt = 0;
+    uint32_t mbox_msg_lost_cnt_saved = 0;
 
     vAmcStatusOr( HAL_AMC_STATUS_MAIN_RUNNING );
 
@@ -862,6 +865,11 @@ static void vTaskFuncMain( void )
             b2b_pool_size = ucore_cfg.b2b_size;
             zhc_cache_addr = ucore_cfg.zhc_cache_addr;
             zhc_cache_size = ucore_cfg.zhc_cache_size;
+
+            if (mbox_msg_lost_cnt > 0 && mbox_msg_lost_cnt != mbox_msg_lost_cnt_saved) {
+                mbox_msg_lost_cnt_saved = mbox_msg_lost_cnt;
+                PLL_ERR("AMC", "mailbox got full and we lost %d msgs", mbox_msg_lost_cnt);
+            }
 
             if (timestamp != new_timestamp) { // this means user SW (tfhe-rs) has been restarted
                 PLL_DBG("parse_iop", "timestamp %d changed => reset inter-HPU struct", new_timestamp);
