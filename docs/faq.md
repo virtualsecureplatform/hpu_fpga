@@ -255,12 +255,12 @@ ta 1
 device status -hex error_status
 ```
 
-All output should be zeros, if something is up (this can happen with a functional bitstream), you can have a look there to get the bit signification in [this documentation](https://xilinx-wiki.atlassian.net/wiki/spaces/A/pages/2037088327/Versal+Platform+Loader+and+Manager#Debugging-Tips).
+All output should be zeros, if something is up (this can happen with a functional bitstream), you can have a look there to get the bit meaning in [this documentation](https://xilinx-wiki.atlassian.net/wiki/spaces/A/pages/2037088327/Versal+Platform+Loader+and+Manager#Debugging-Tips).
 
 
 > [!NOTE]
 > We noticed that ```GSW ERROR``` can be raised with a working bitstream.\
-> ```NOC NCR``` already happened during development, this is likely a big issue you introduced in the block design.
+> ```NOC NCR``` error can happen during development, this is likely a big issue you introduced in the block design.
 
 <a id="compat"></a>
 ### The board is in ```COMPAT``` mode, what to do?

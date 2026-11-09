@@ -51,7 +51,7 @@ This repository provides everything needed to deploy and experiment with the HPU
 The directories of this repository are organized in the following way:
 #### Root
 * `docs/`
-    * Markdown documentations.
+    * Markdown documentation.
 * `fw/`
     * Firmware code for the RPU
 * `hw/`
@@ -139,7 +139,7 @@ To use the HPU FPGA project, ensure the following tools and dependencies are ins
 - [**tfhe-rs**](https://github.com/zama-ai/tfhe-rs/) >= 1.2.0.
 - **Host linux driver**: [AVED fork](https://github.com/zama-ai/AVED).
 - **DMA linux driver**: [QDMA fork](https://github.com/zama-ai/dma_ip_drivers).
-- [**Vivado/Vitis**](https://www.xilinx.com/support/download/index.html/content/xilinx/en/downloadNav/vivado-design-tools/2025-1.html) = **2025.1**.
+- [**Vivado/Vitis**](https://www.amd.com/en/support/downloads/adaptive-socs-and-fpgas/development-tools/2026-1.html) = **2026.1**.
 - [**just**](https://github.com/casey/just) >= 1.37.0.
 - *(simulation only)* [**Sage**](https://sagemanifolds.obspm.fr/install_ubuntu.html) = 10.4.
 - *(firmware compilation)* [**CMake**](https://cmake.org/download/) >= 3.3.0.
@@ -223,9 +223,8 @@ cd ${PROJECT_DIR}/versal
 > * run_syn_hpu_3parts_psi16.sh
 >     * HPU in which blind rotation processes 32 polynomial coefficients per cycle.
 >     * Fastest to compile.
-> * sometimes Vivado 2025.1 will report routing failures like "Router failed to deposit pin-assignments on site...". In these case you need to wait for top_hpu_routed_error.dcp to be generated and run the script you can find in versal/script/reroute.tcl which unroutes this slice and reroutes the whole design (Ex: vivado -mode batch -source scripts/reroute.tcl -tclargs SLICE_X286Y585 output_psi64).
 
-The documentation about [HPU parameters](./docs/hpu_parameters.md) and [parsing flags](./docs/parsing_flags.md) can help you understand the content of these 3 scripts and change some of these parameters to adapt the HPU to your needs.
+The documentation about [HPU parameters](./docs/hpu_parameters.md) and [parsing flags](./docs/parsing_flags.md) can help you understand the content of these 3 scripts and change some of these parameters to adapt the HPU to your needs. To achieve compilation stability and best performance, the Network-On-Chip (NOC) configuration has been constrained to a pre-generated [NCR](./versal/constraints/noc/top_hpu_psi64.ncr) for PSI64 HPU.
 
 A tested bitstream of the HPU compiled using run_syn_hpu_3parts_psi64.sh is available in tfhe-rs repo.
 
@@ -343,11 +342,11 @@ make
 sudo mkdir -p /opt/v80/ami/bd569ee/
 sudo chown -R root:hw /opt/v80
 sudo chmod -R 775 /opt/v80
-cp ami.ko /opt/v80/ami/bd569ee/
+cp ami.ko /opt/v80/ami/9b14c2b/
 cd ..
 make -C api all
 make -C app all
-sudo insmod /opt/v80/ami/bd569ee/ami.ko
+sudo insmod /opt/v80/ami/9b14c2b/ami.ko
 ```
 Now ```ami_tool``` is available in `zama_aved/sw/AMI/app/build/` directory. You can copy it in your ~/.local/bin or modify your PATH.
 

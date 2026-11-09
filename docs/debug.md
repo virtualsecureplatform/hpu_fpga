@@ -530,7 +530,7 @@ IOp implementation to learn how to do that but it is not considered stable yet f
 
 # Finishing remarks
 
-Hopefully, this document has enlightened you on the tools at your disposal to debugging _HPU_ IOps.
+Hopefully, this document has enlightened you on the tools at your disposal for debugging _HPU_ IOps.
 Make sure you also read the other documents pertaining to writing firmware to the _HPU_ before
 trying to write or even debug IOps.
 
