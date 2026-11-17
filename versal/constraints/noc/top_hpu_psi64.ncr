@@ -1044,37 +1044,37 @@
       "SysAddresses": [],
       "Remap": [
         {
-          "Logical": "0x20108000000",
-          "Physical": "0x38000000",
-          "Range": "0x8000000"
+          "Logical": "0x20100000000",
+          "Physical": "0x10000000",
+          "Range": "0x800000"
         },
         {
-          "Logical": "0x20100110000",
+          "Logical": "0x20102010000",
           "Physical": "0x20180010000",
           "Range": "0x10000"
         },
         {
-          "Logical": "0x20100100000",
+          "Logical": "0x20102000000",
           "Physical": "0x20180000000",
           "Range": "0x10000"
         },
         {
-          "Logical": "0x20100130000",
+          "Logical": "0x20102030000",
           "Physical": "0x20180030000",
           "Range": "0x10000"
         },
         {
-          "Logical": "0x20100120000",
+          "Logical": "0x20102020000",
           "Physical": "0x20180020000",
           "Range": "0x10000"
         },
         {
-          "Logical": "0x20100140000",
+          "Logical": "0x20102040000",
           "Physical": "0x20180040000",
           "Range": "0x10000"
         },
         {
-          "Logical": "0x20100150000",
+          "Logical": "0x20102050000",
           "Physical": "0x20180050000",
           "Range": "0x10000"
         }

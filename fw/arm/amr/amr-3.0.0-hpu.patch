@@ -1,0 +1,375 @@
+diff --git a/fw/AMC/CMakeLists.txt b/fw/AMC/CMakeLists.txt
+index 49bf35e..a9c3935 100755
+--- a/fw/AMC/CMakeLists.txt
++++ b/fw/AMC/CMakeLists.txt
+@@ -5,6 +5,11 @@ cmake_minimum_required(VERSION 3.7.0)
+ 
+ project(amc)
+ 
++option(AMC_COPY_DIAG "Record startup copy failures and ASDM EOR results (diagnostic only)" OFF)
++if(AMC_COPY_DIAG)
++    add_definitions(-DAMC_COPY_DIAG)
++endif()
++
+ add_definitions(-DRUN_TIME)
+ 
+ #adds test directories if test flag set to true
+@@ -116,6 +121,11 @@ else()
+         ERROR_QUIET
+     )
+ 
++    set(AMC_SOURCE_REVISION "" CACHE STRING "Pinned upstream revision for exported sources")
++    if(AMC_SOURCE_REVISION)
++        set(CMAKE_GIT_HASH "${AMC_SOURCE_REVISION}")
++        set(CMAKE_GIT_DATE "upstream-pinned")
++    endif()
+     # Also provide as definitions (useful for conditional compilation)
+     add_definitions(-DGIT_HASH="${CMAKE_GIT_HASH}")
+     add_definitions(-DGIT_DATE="${CMAKE_GIT_DATE}")
+@@ -124,7 +134,8 @@ else()
+     if(NOT BSP_DIR)
+         set(BSP_DIR "${CMAKE_BINARY_DIR}/amc_bsp")
+     endif()
+-    set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH};${BSP_DIR}/amc_bsp/lib)
++    set(BSP_ROOT "${BSP_DIR}/amc_bsp" CACHE PATH "Generated SDT BSP root")
++    set(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH};${BSP_ROOT}/lib)
+     find_library(XIL_LIB        NAMES xil           PATHS ${CMAKE_LIBRARY_PATH})
+     find_library(XIL_PM         NAMES xilpm         PATHS ${CMAKE_LIBRARY_PATH})
+     find_library(XIL_FPGA       NAMES xilfpga       PATHS ${CMAKE_LIBRARY_PATH})
+@@ -135,7 +146,7 @@ else()
+     find_library(XIL_STANDALONE NAMES xilstandalone PATHS ${CMAKE_LIBRARY_PATH})
+ 
+     #Include directories
+-    include_directories(${BSP_DIR}/amc_bsp/include)
++    include_directories(${BSP_ROOT}/include)
+     include_directories(${CMAKE_LIBRARY_PATH})
+     include_directories(src/common/include)
+     include_directories(src/common/core_libs/pll)
+@@ -301,9 +312,16 @@ else()
+             PRIVATE src/apps/bim/debug/bim_debug.c)
+     endif()
+ 
++    set(AMC_LINKER_SCRIPT "${amc_SOURCE_DIR}/src/lscript.ld" CACHE FILEPATH "AMC linker script")
++    set(HPU_APP_DIR "" CACHE PATH "Optional HPU fw/arm application source root")
++    if(HPU_APP_DIR)
++        # Source list, include paths and link options live with the HPU sources.
++        include(${HPU_APP_DIR}/amr/hpu_app.cmake)
++    endif()
++
+     #linking libraries with executable
+     if(OS MATCHES "^(FreeRTOS)$")
+-        target_link_libraries(amc.elf "-Wl,-T -Wl,${amc_SOURCE_DIR}/src/lscript.ld" -Wl,--start-group,${FREERTOS_LIB},${XIL_LIB},${XIL_TIMER},${XIL_MAILBOX},${XIL_XLOADER},${XIL_STANDALONE},${XIL_PM},-lgcc,-lc,--end-group)
++        target_link_libraries(amc.elf "-Wl,-T -Wl,${AMC_LINKER_SCRIPT}" -Wl,--start-group,${FREERTOS_LIB},${XIL_LIB},${XIL_TIMER},${XIL_MAILBOX},${XIL_XLOADER},${XIL_STANDALONE},${XIL_PM},-lgcc,-lc,--end-group)
+         target_compile_definitions(amc.elf PRIVATE $<$<CONFIG:Debug>:DEBUG_PRINT> GCQ_MAX_INSTANCES=1)
+     endif()
+ endif()
+diff --git a/fw/AMC/src/amc.c b/fw/AMC/src/amc.c
+index 0952580..5c24149 100755
+--- a/fw/AMC/src/amc.c
++++ b/fw/AMC/src/amc.c
+@@ -12,6 +12,9 @@
+ #include "util.h"
+ #include "amc_cfg.h"
+ #include "amc_version.h"
++#ifdef AMC_HPU_APP
++#include "hpu_amr.h"
++#endif
+ #include "xil_util.h"
+ #include "xil_cache.h"
+ #include "xloader_client.h"
+@@ -130,7 +133,9 @@ static int iBmcCallback( EVLSignal *pxSignal );
+  *
+  * @return  N/A
+  */
++#ifdef DEBUG_BUILD
+ static void vGetProjectInfo( void );
++#endif
+ 
+ /**
+  * @brief   Initialise core libraries
+@@ -278,6 +283,9 @@ static XLoader_ClientInstance XLoaderInstance; /* XLoader instance */
+ static void vTaskFuncMain( void )
+ {
+     int iStatus = ERROR;
++#ifdef AMC_HPU_APP
++    int hpuInitFailed = 0;
++#endif
+ 
+     vConfigureSharedMemTable();
+ 
+@@ -289,6 +297,9 @@ static void vTaskFuncMain( void )
+     else
+     {
+         PLL_LOG( AMC_NAME, "Core Libs initialisation ERROR\t\n" );
++#ifdef AMC_HPU_APP
++        hpuInitFailed = 1;
++#endif
+     }
+ 
+     if( OK == iInitDeviceDrivers() )
+@@ -299,6 +310,9 @@ static void vTaskFuncMain( void )
+     else
+     {
+         PLL_LOG( AMC_NAME, "Device drivers Initialisation ERROR\r\n" );
++#ifdef AMC_HPU_APP
++        hpuInitFailed = 1;
++#endif
+     }
+ 
+     if( OK == iFAL_Initialise( &ullAmcInitStatus ) )
+@@ -308,6 +322,9 @@ static void vTaskFuncMain( void )
+     else
+     {
+         PLL_LOG( AMC_NAME, "FAL Initialisation ERROR\r\n" );
++#ifdef AMC_HPU_APP
++        hpuInitFailed = 1;
++#endif
+     }
+ 
+     if( OK == iInitProxies() )
+@@ -318,6 +335,9 @@ static void vTaskFuncMain( void )
+     else
+     {
+         PLL_LOG( AMC_NAME, "Proxy Drivers Initialisation ERROR\r\n" );
++#ifdef AMC_HPU_APP
++        hpuInitFailed = 1;
++#endif
+     }
+ 
+     if( OK == iInitApp() )
+@@ -433,6 +453,12 @@ static void vTaskFuncMain( void )
+              ( ullAmcInitStatus & AMC_CFG_OUT_OF_BAND_INITIALISED      ? "TRUE" : "FALSE" ) );
+ #endif
+ 
++#ifdef AMC_HPU_APP
++    if (iStatus == OK && !hpuInitFailed) {
++        hpu_amr_run();
++    }
++    hpu_amr_status(2);
++#endif
+     for( ;; )
+     {
+         iOSAL_Task_SleepMs( AMC_TASK_SLEEP_MS );
+@@ -445,6 +471,9 @@ static void vTaskFuncMain( void )
+ int main( void )
+ {
+     void *pvMainTaskHandle = NULL;
++#ifdef AMC_HPU_APP
++    hpu_amr_status(0);
++#endif
+ 
+     if( OSAL_ERRORS_OS_NOT_STARTED != iOSAL_StartOS( TRUE,
+                                                      &pvMainTaskHandle,
+@@ -656,6 +685,7 @@ static int iBmcCallback( EVLSignal *pxSignal )
+ /**
+  * @brief   Get project info
+  */
++#ifdef DEBUG_BUILD
+ static void vGetProjectInfo( void )
+ {
+     char    pcOsName[ OSAL_OS_NAME_LEN ] = "unknown";
+@@ -702,6 +732,7 @@ static void vGetProjectInfo( void )
+ /**
+  * @brief   Initialise core libraries
+  */
++#endif
+ static int iInitCoreLibs( void )
+ {
+     int iStatus = ERROR;
+diff --git a/fw/AMC/src/apps/asdm/asdm.c b/fw/AMC/src/apps/asdm/asdm.c
+index c336032..640b210 100755
+--- a/fw/AMC/src/apps/asdm/asdm.c
++++ b/fw/AMC/src/apps/asdm/asdm.c
+@@ -541,6 +541,14 @@ static ASDMSensorHeader xAsdmHeaderInfo[] =
+ 
+ #define MAX_ASDM_SDR_REPO ( sizeof( xAsdmHeaderInfo ) / sizeof( xAsdmHeaderInfo[0] ) )
+ 
++#ifdef AMC_COPY_DIAG
++/* Startup evidence only; intentionally not cleared by clear_stats. */
++static struct {
++    unsigned attempted, sdr_copy_ok, sds_copy_ok;
++    unsigned sdr_eor, sds_eor;
++} xEorDiag[MAX_ASDM_SDR_REPO];
++#endif
++
+ static const char *pcConvertRepoBaseUnitStr[] =
+ {
+     [ASDM_REPOSITORY_TYPE_TEMP]        = "Celsius",
+@@ -2399,12 +2407,29 @@ static int iPopulateSds( uint8_t ucIndex,
+                      if ( OK == iStatus )
+                      {
+                          /* Copy EOR */
++#ifdef AMC_COPY_DIAG
++                         xEorDiag[iRepoIndex].attempted = 1;
++                         xEorDiag[iRepoIndex].sdr_copy_ok =
++                             ( NULL != pvOSAL_MemCpy( pxThis->pxAsdmSdrInfo[iRepoIndex].pucAsdmEor,
++                                                      ASDM_EOR_MARKER, ASDM_EOR_BYTES ) );
++                         xEorDiag[iRepoIndex].sds_copy_ok =
++                             ( NULL != pvOSAL_MemCpy( pxThis->pxAsdmSdsInfo[iRepoIndex].pucAsdmEor,
++                                                      ASDM_EOR_MARKER, ASDM_EOR_BYTES ) );
++                         for( unsigned b = 0; b < ASDM_EOR_BYTES; ++b )
++                         {
++                             xEorDiag[iRepoIndex].sdr_eor = (xEorDiag[iRepoIndex].sdr_eor << 8) |
++                                 pxThis->pxAsdmSdrInfo[iRepoIndex].pucAsdmEor[b];
++                             xEorDiag[iRepoIndex].sds_eor = (xEorDiag[iRepoIndex].sds_eor << 8) |
++                                 pxThis->pxAsdmSdsInfo[iRepoIndex].pucAsdmEor[b];
++                         }
++#else
+                          pvOSAL_MemCpy( pxThis->pxAsdmSdrInfo[iRepoIndex].pucAsdmEor,
+                                         ASDM_EOR_MARKER,
+                                         ASDM_EOR_BYTES );
+                          pvOSAL_MemCpy( pxThis->pxAsdmSdsInfo[iRepoIndex].pucAsdmEor,
+                                         ASDM_EOR_MARKER,
+                                         ASDM_EOR_BYTES );
++#endif
+ 
+                          /*
+                           * Update the Byte Count for this record in Multiple of 8
+@@ -3789,6 +3814,14 @@ int iASDM_PrintStatistics( void )
+ {
+     int iStatus = ERROR;
+ 
++#ifdef AMC_COPY_DIAG
++    vOSAL_PrintCopyDiagnostics();
++    for( unsigned r = 0; r < MAX_ASDM_SDR_REPO; ++r )
++        PLL_INF( ASDM_NAME, "EOR_DIAG repo=%u attempted=%u sdr_ok=%u sds_ok=%u sdr=%06x sds=%06x\r\n",
++                 r, xEorDiag[r].attempted, xEorDiag[r].sdr_copy_ok,
++                 xEorDiag[r].sds_copy_ok, xEorDiag[r].sdr_eor, xEorDiag[r].sds_eor );
++#endif
++
+     if ( ( UPPER_FIREWALL == pxThis->ulUpperFirewall ) &&
+          ( LOWER_FIREWALL == pxThis->ulLowerFirewall ) )
+     {
+diff --git a/fw/AMC/src/osal/src/freeRTOS/osal.c b/fw/AMC/src/osal/src/freeRTOS/osal.c
+index 2874cd0..04a5d6d 100755
+--- a/fw/AMC/src/osal/src/freeRTOS/osal.c
++++ b/fw/AMC/src/osal/src/freeRTOS/osal.c
+@@ -86,6 +86,45 @@ static void *pvStrNCpySemHandle   = NULL;
+ static void *pvMemCmpSemHandle    = NULL;
+ static void *pvMemMoveSemHandle   = NULL;
+ 
++#ifdef AMC_COPY_DIAG
++/* First failures survive later activity. No allocation, copying or logging here.
++ * R5-local IRQ masking protects records from task/IRQ interleaving. */
++static volatile struct {
++    uint32_t count;
++    struct { uintptr_t caller, destination, source; uint32_t size; } first[16];
++} xCopyDiag;
++
++static void vRecordCopyFailure( uintptr_t caller, void *destination,
++                                const void *source, uint32_t size )
++{
++    uint32_t saved;
++    __asm__ volatile ( "mrs %0, cpsr\n\tcpsid i" : "=r" (saved) :: "memory" );
++    uint32_t index = xCopyDiag.count;
++    if( index < 16 )
++    {
++        xCopyDiag.first[index].caller = caller;
++        xCopyDiag.first[index].destination = (uintptr_t)destination;
++        xCopyDiag.first[index].source = (uintptr_t)source;
++        xCopyDiag.first[index].size = size;
++    }
++    if( index != UINT32_MAX ) xCopyDiag.count = index + 1;
++    __asm__ volatile ( "msr cpsr_c, %0" :: "r" (saved) : "memory" );
++}
++
++void vOSAL_PrintCopyDiagnostics( void )
++{
++    uint32_t count = xCopyDiag.count;
++    vOSAL_Printf( "COPY_DIAG failed_acquisitions=%u retained=%u\r\n",
++                 (unsigned)count, (unsigned)(count < 16 ? count : 16) );
++    for( uint32_t i = 0; i < count && i < 16; ++i )
++        vOSAL_Printf( "COPY_DIAG n=%u caller=%08x dst=%08x src=%08x size=%u\r\n",
++                     (unsigned)i, (unsigned)xCopyDiag.first[i].caller,
++                     (unsigned)xCopyDiag.first[i].destination,
++                     (unsigned)xCopyDiag.first[i].source,
++                     (unsigned)xCopyDiag.first[i].size );
++}
++#endif
++
+ static OSALTaskMemory xTaskMemoryPool[ OSAL_MAX_TASKS ] = { 0 };
+ static BaseType_t xTaskMemoryUsed[ OSAL_MAX_TASKS ]     = { 0 }; /* 0 - unused, 1 - used */
+ 
+@@ -1883,7 +1922,7 @@ int iOSAL_Timer_Reset( void* pvTimerHandle, uint32_t ulDurationMs )
+ /**
+  * @brief   Sets up interrupt handler callback with appropriate interrupt ID
+  */
+-int iOSAL_Interrupt_Setup( uint8_t ucInterruptID,
++int iOSAL_Interrupt_Setup( uint16_t ucInterruptID,
+                            void    ( *pvInterruptHandler )( void* pvCallBackRef ),
+                            void*   pvCallBackRef )
+ {
+@@ -1910,7 +1949,7 @@ int iOSAL_Interrupt_Setup( uint8_t ucInterruptID,
+ /**
+  * @brief   Enable OSAL interrupts
+  */
+-int iOSAL_Interrupt_Enable( uint8_t ucInterruptID )
++int iOSAL_Interrupt_Enable( uint16_t ucInterruptID )
+ {
+     int iStatus = OSAL_ERRORS_PARAMS;
+ 
+@@ -1925,7 +1964,7 @@ int iOSAL_Interrupt_Enable( uint8_t ucInterruptID )
+ /**
+  * @brief   Disable OSAL interrupts
+  */
+-int iOSAL_Interrupt_Disable( uint8_t ucInterruptID )
++int iOSAL_Interrupt_Disable( uint16_t ucInterruptID )
+ {
+     int iStatus = OSAL_ERRORS_PARAMS;
+ 
+@@ -2040,6 +2079,13 @@ void* pvOSAL_MemCpy( void* pvDestination, const void* pvSource, uint32_t usSize
+                 /* release semaphore */
+                 xSemaphoreGiveFromISR( ( SemaphoreHandle_t ) pvMemCpySemHandle, &xHigherPriorityTaskWoken );
+             }
++#ifdef AMC_COPY_DIAG
++            else
++            {
++                vRecordCopyFailure( (uintptr_t)__builtin_return_address(0),
++                                    pvDestination, pvSource, usSize );
++            }
++#endif
+         }
+         else
+         {
+diff --git a/fw/AMC/src/osal/src/osal.h b/fw/AMC/src/osal/src/osal.h
+index 152ade6..71c601e 100755
+--- a/fw/AMC/src/osal/src/osal.h
++++ b/fw/AMC/src/osal/src/osal.h
+@@ -662,7 +662,7 @@ int iOSAL_Timer_Reset( void* pvTimerHandle, uint32_t ulDurationMs );
+  *          OSAL_ERRORS_OS_IMPLEMENTATION   error code returned from os implementation
+  *
+  */
+-int iOSAL_Interrupt_Setup( uint8_t ucInterruptID,
++int iOSAL_Interrupt_Setup( uint16_t ucInterruptID,
+                            void    ( *pvInterruptHandler )( void* pvCallBackRef ),
+                            void*   pvCallBackRef );
+ 
+@@ -676,7 +676,7 @@ int iOSAL_Interrupt_Setup( uint8_t ucInterruptID,
+  *          OSAL_ERRORS_OS_IMPLEMENTATION   error code returned from os implementation
+  *
+  */
+-int iOSAL_Interrupt_Enable( uint8_t ucInterruptID );
++int iOSAL_Interrupt_Enable( uint16_t ucInterruptID );
+ 
+ /**
+  * iOSAL_Interrupt_Disable() - Disable OSAL interrupts
+@@ -688,7 +688,7 @@ int iOSAL_Interrupt_Enable( uint8_t ucInterruptID );
+  *          OSAL_ERRORS_OS_IMPLEMENTATION   error code returned from os implementation
+  *
+  */
+-int iOSAL_Interrupt_Disable( uint8_t ucInterruptID );
++int iOSAL_Interrupt_Disable( uint16_t ucInterruptID );
+ 
+ /*****************************************************************************/
+ /* Thread safe APIs                                                          */
+@@ -782,6 +782,10 @@ void vOSAL_MemMove( void *pvDestination, void *pvSource, uint32_t usPayload_size
+  */
+ void vOSAL_Printf( const char* pcFormat, ... );
+ 
++#ifdef AMC_COPY_DIAG
++void vOSAL_PrintCopyDiagnostics( void );
++#endif
++
+ /**
+  * cOSAL_GetChar() - OSAL wrapper for task/thread safe char reading.
+  *

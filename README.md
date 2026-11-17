@@ -21,6 +21,11 @@
 </p>
 
 <a id="about"></a>
+> [!NOTE]
+> Branch `amr2026`: this fork runs the HPU on a V80 that keeps the stock AMD AMR 3.0
+> management firmware and driver instead of Zama's AVED fork. See [docs/amr.md](docs/amr.md)
+> for the differences, the build and the deployment. The rest of this README is upstream's.
+
 ## About
 
 <a id="what-is-zamas-hpu-on-fpga"></a>

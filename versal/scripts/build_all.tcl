@@ -26,6 +26,10 @@ set OUTDIR [lindex $::argv 0]
 # This value must be between [1:32], therefore on main server we need a hardcoded value
 # set MAX_THREADS [expr {[exec nproc] / 2}]
 set MAX_THREADS 10
+if {[info exists ::env(HPU_MAX_THREADS)]} {
+  set MAX_THREADS $::env(HPU_MAX_THREADS)
+  if {![string is integer -strict $MAX_THREADS] || $MAX_THREADS < 1 || $MAX_THREADS > 32} { error "Invalid HPU_MAX_THREADS" }
+}
 
 # This flag is used for avoiding project creation when sourcing create_shell script
 set SKIP_PRJ_SHELL 1
@@ -210,6 +214,8 @@ proc synthesis { } {
   # make clear what the top level is
   set_property top $TOP_NAME [current_fileset]
   update_compile_order -fileset sources_1
+  # Record licensing of freshly generated IP before an expensive build.
+  report_ip_status -file $OUTDIR/ip_status_before_synthesis.rpt
 
   set my_generics ""
   # Loop through list of user parameters
@@ -231,8 +237,18 @@ proc synthesis { } {
   }
 
 
-  launch_runs synth_1 -jobs $MAX_THREADS
+  # Out-of-context IP runs are synthesised in parallel; each one is a Vivado process.
+  # HPU_SYNTH_JOBS=1 keeps a 96 GiB host from running out of memory.
+  set synth_jobs $MAX_THREADS
+  if {[info exists ::env(HPU_SYNTH_JOBS)]} {
+    set synth_jobs $::env(HPU_SYNTH_JOBS)
+    if {![string is integer -strict $synth_jobs] || $synth_jobs < 1 || $synth_jobs > 32} { error "Invalid HPU_SYNTH_JOBS" }
+  }
+  launch_runs synth_1 -jobs $synth_jobs
   wait_on_runs synth_1
+  if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} {
+    error "Synthesis did not complete: [get_property STATUS [get_runs synth_1]]"
+  }
 
   write_messages -force -severity "INFO" -file $OUTDIR/${TOP_NAME}/syn_${TOP_NAME}_info.log
   write_messages -force -severity "WARNING" -file $OUTDIR/${TOP_NAME}/syn_${TOP_NAME}_warn.log
@@ -252,8 +268,19 @@ proc implementation { ntt_psi } {
 
   # Do NOT do it step by step here, without a full run from launch_rins impl_1
   # impl_1 won't be created and the status won't be up to date.
-  launch_runs impl_1 -to_step write_device_image -jobs $MAX_THREADS
+  set final_step write_device_image
+  if {[info exists ::env(HPU_STOP_AFTER_ROUTE)] && $::env(HPU_STOP_AFTER_ROUTE) eq "1"} {
+    set final_step route_design
+  }
+  launch_runs impl_1 -to_step $final_step -jobs $MAX_THREADS
   wait_on_runs impl_1
+
+  if {$final_step eq "route_design"} {
+    if {![file exists $OUTDIR/${TOP_NAME}/prj.runs/impl_1/.route_design.end.rst]} {
+      error "Routing did not complete: [get_property STATUS [get_runs impl_1]]"
+    }
+    return
+  }
 
   write_messages -force -severity "INFO" -file $OUTDIR/${TOP_NAME}/imp_${TOP_NAME}_info.log
   write_messages -force -severity "WARNING" -file $OUTDIR/${TOP_NAME}/imp_${TOP_NAME}_warn.log

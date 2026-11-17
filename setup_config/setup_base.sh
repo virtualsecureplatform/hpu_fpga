@@ -9,6 +9,7 @@ export SHELL_VER=hpu_plug
 
 # Tool version
 export XILINX_TOOL_VERSION=2026.1
+export XILINXD_LICENSE_FILE=${XILINXD_LICENSE_FILE:-2100@eddystone.sato.lab}
 export SNPS_TOOL_VERSION=${SNPS_TOOL_VERSION:-'Y-2026.03-SP2'}
 
 echo "#################################################"

@@ -44,6 +44,15 @@ if {[llength $keep_repl_cells] > 0} {
 # Rename the clock gated clock to something sensible
 create_generated_clock -name prc_clk [get_pins -of_objects [get_clocks clkout1_primitive]]
 
+# Fail early if a rebuild retained a stale clock-wizard configuration.
+if {[info exists ::env(HPU_FREQ_MHZ)]} {
+    set actual_hpu_mhz [expr {1000.0 / [get_property PERIOD [get_clocks prc_clk]]}]
+    puts "HPU processing clock actual: $actual_hpu_mhz MHz"
+    if {abs($actual_hpu_mhz - $::env(HPU_FREQ_MHZ)) > 0.05} {
+        error "Actual HPU clock does not match HPU_FREQ_MHZ"
+    }
+}
+
 #cfg clock and prc clocks are asynchronous
 set_clock_groups -name async_cfg_prc -asynchronous -group {cfg_clk} -group [get_clocks  -regexp {.*prc_.*clk.*}]
 set_clock_groups -name async_mhdma_cfg -asynchronous -group [get_clocks mhdma_cfg_clk] -group [get_clocks cfg_clk]

@@ -52,7 +52,16 @@ namespace eval _nsp_hpu {
     variable PCIE_REF_FREQ 100.000
 
     # User
+    # This value configures the clock wizard itself, including the matching
+    # free-running output. Generated timing constraints follow the real clock.
     set freq 400.000
+    if {[info exists ::env(HPU_FREQ_MHZ)]} {
+        set freq $::env(HPU_FREQ_MHZ)
+        if {$freq ni {350 350.000 400 400.000}} {
+            error "HPU_FREQ_MHZ must be 350 or 400 MHz"
+        }
+    }
+    puts "HPU processing clock requested: $freq MHz"
     variable USER_0_FREQ $freq
     variable USER_1_FREQ 100.000
 

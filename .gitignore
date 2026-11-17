@@ -1,4 +1,6 @@
 output*
+versal/timing_*/
+versal/diagnostic_*/
 *_gen
 gen
 .vscode/
